@@ -1,0 +1,50 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv/
+
+# Secrets and local environment
+API-Keys/
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Local tool/editor state
+.claude/
+
+# Data, generated artifacts, and model weights
+data/
+results/**
+!results/
+!results/**/
+!results/**/*.py
+*.npy
+*.npz
+*.pt
+*.pth
+*.pkl
+*.joblib
+*.jsonl
+*.log
+
+# IDEs and editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Notebook and OS noise
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
