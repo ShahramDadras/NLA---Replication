@@ -185,8 +185,9 @@ def step5_evaluate(activations: np.ndarray, texts: list,
     # Behavioral properties
     run_behavioral_analysis(
         sample_texts, explanations,
-        run_confabulation=(provider != "local"),
+        run_confabulation=(provider in ("anth", "gem")),
         checkpoint_label="final",
+        provider=provider,
     )
 
     # Prediction tasks
@@ -226,14 +227,18 @@ def step6_case_studies(device: str, provider: str = AI_PROVIDER) -> None:
         print("  (Skipping: language_switching.py not found)")
 
 
-def step7_confabulation_analysis(texts: list, explanations: list) -> None:
+def step7_confabulation_analysis(
+    texts: list,
+    explanations: list,
+    provider: str = AI_PROVIDER,
+) -> None:
     """Step 7: Systematic confabulation analysis."""
     print("\n" + "="*60)
     print("STEP 7: Confabulation Analysis")
     print("="*60)
     sys.path.insert(0, str(Path(__file__).parent / "07_analysis"))
     from confabulation_analysis import run_confabulation_analysis
-    run_confabulation_analysis(texts, explanations, n_sample=40)
+    run_confabulation_analysis(texts, explanations, n_sample=40, provider=provider)
 
 
 def step8_generate_figures() -> None:
@@ -259,7 +264,9 @@ def run_all(device: str = "cpu", provider: str = AI_PROVIDER) -> None:
 
     step6_case_studies(device, provider=provider)
     if eval_out.get("explanations"):
-        step7_confabulation_analysis(texts[:EVAL_SAMPLES], eval_out["explanations"])
+        step7_confabulation_analysis(
+            texts[:EVAL_SAMPLES], eval_out["explanations"], provider=provider
+        )
     step8_generate_figures()
 
     elapsed = time.time() - start
@@ -317,4 +324,6 @@ if __name__ == "__main__":
         ar_wrapper = step3_warmstart_ar(summaries, activations, args.device)
         step4_train_nla(activations, token_lists, ar_wrapper, args.device, provider=args.ai)
         eval_out = step5_evaluate(activations, texts, token_lists, ar_wrapper, args.device, provider=args.ai)
-        step7_confabulation_analysis(texts[:EVAL_SAMPLES], eval_out["explanations"])
+        step7_confabulation_analysis(
+            texts[:EVAL_SAMPLES], eval_out["explanations"], provider=args.ai
+        )

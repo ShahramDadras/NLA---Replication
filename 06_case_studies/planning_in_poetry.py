@@ -31,7 +31,7 @@ from transformers import GPT2LMHeadModel, GPT2Tokenizer
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
     TARGET_MODEL_NAME, TARGET_LAYER, D_MODEL,
-    RESULTS_DIR, FIGURES_DIR, ANTHROPIC_API_KEY, SEED
+    RESULTS_DIR, FIGURES_DIR, AI_PROVIDER, SEED
 )
 
 POETRY_PROMPT = "A rhyming couplet: He saw a carrot and had to grab it,"
@@ -92,7 +92,7 @@ def verbalize_poetry_activation(
     activation: np.ndarray,
     tokens: list[str],
     layer: int = TARGET_LAYER,
-    provider: str = "local",
+    provider: str = AI_PROVIDER,
 ) -> str:
     """
     Verbalize the "grab it" token activation using the configured AV provider.
@@ -198,7 +198,7 @@ def apply_steering(
     return completions
 
 
-def run_poetry_case_study(ar_wrapper=None, device: str = "cpu", provider: str = "local") -> dict:
+def run_poetry_case_study(ar_wrapper=None, device: str = "cpu", provider: str = AI_PROVIDER) -> dict:
     """
     Full poetry planning case study.
     Returns results dict with verbalization, rhyme check, and steering results.

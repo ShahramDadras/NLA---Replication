@@ -15,7 +15,7 @@ Section "Measuring Behavioral Properties of NLAs":
   3. CONFABULATION RATE      — How often does the explanation contain verifiably
                                false claims?
                                Measured by: fact-checking specific claims against
-                               the known context using Claude as judge.
+                               the known context using Gemini or Claude as judge.
 
   4. EXPLANATION LENGTH      — Do explanations get shorter/longer over training?
 
@@ -40,7 +40,8 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
-    ANTHROPIC_API_KEY, CLAUDE_MODEL, RESULTS_DIR, SEED
+    ANTHROPIC_API_KEY, CLAUDE_MODEL, GEMINI_API_KEY, PROVIDER_MODELS,
+    RESULTS_DIR, SEED, AI_PROVIDER
 )
 
 
@@ -152,31 +153,52 @@ Respond with JSON: {"confabulated_claims": [...], "n_total_claims": int, "confab
 
 
 def check_confabulation(
-    client: anthropic.Anthropic,
+    client,
     text: str,
     explanation: str,
+    provider: str,
 ) -> dict:
     """
-    Use Claude as a judge to check confabulations in one explanation.
+    Use the configured judge to check confabulations in one explanation.
     """
+    prompt = (
+        f"ORIGINAL TEXT:\n{text[:500]}\n\n"
+        f"NLA EXPLANATION:\n{explanation}\n\n"
+        "Check for confabulations:"
+    )
     try:
-        response = client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=300,
-            system=CONFABULATION_JUDGE_SYSTEM,
-            messages=[{
-                "role": "user",
-                "content": f"ORIGINAL TEXT:\n{text[:500]}\n\nNLA EXPLANATION:\n{explanation}\n\nCheck for confabulations:"
-            }],
-        )
-        text_response = response.content[0].text.strip()
+        if provider == "anth":
+            response = client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=300,
+                system=CONFABULATION_JUDGE_SYSTEM,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text_response = response.content[0].text.strip()
+        elif provider == "gem":
+            from google.genai import types
+            response = client.models.generate_content(
+                model=PROVIDER_MODELS["gem"],
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=CONFABULATION_JUDGE_SYSTEM,
+                    max_output_tokens=512,
+                    temperature=0.0,
+                    response_mime_type="application/json",
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                ),
+            )
+            text_response = (response.text or "").strip()
+        else:
+            return {"confabulated_claims": [], "n_total_claims": 0, "confabulation_rate": 0.0}
+
         json_match = re.search(r'\{.*\}', text_response, re.DOTALL)
         if json_match:
             return json.loads(json_match.group())
     except Exception as e:
-        if "credit balance" in str(e).lower() or "billing" in str(e).lower():
+        msg = str(e).lower()
+        if any(s in msg for s in ("credit balance", "billing", "quota", "rate limit", "429")):
             raise  # let compute_confabulation_rates handle this
-        pass
     return {"confabulated_claims": [], "n_total_claims": 0, "confabulation_rate": 0.0}
 
 
@@ -184,35 +206,38 @@ def compute_confabulation_rates(
     texts: list[str],
     explanations: list[str],
     n_sample: int = 30,
+    provider: str = AI_PROVIDER,
 ) -> dict:
     """
     Sample n_sample (text, explanation) pairs and compute confabulation rates.
-    Skips gracefully if no API key or credits are exhausted.
+    Skips gracefully if no API key or credits/quota are exhausted.
     """
-    if not ANTHROPIC_API_KEY:
-        print("\nConfabulation analysis skipped: no ANTHROPIC_API_KEY.")
+    if provider == "anth" and ANTHROPIC_API_KEY:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    elif provider == "gem" and GEMINI_API_KEY:
+        from google import genai
+        client = genai.Client(api_key=GEMINI_API_KEY)
+    else:
+        print(f"\nConfabulation analysis skipped: no API key for provider '{provider}'.")
         return {"skipped": True, "reason": "no_api_key"}
-
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     indices = np.random.choice(len(texts), size=min(n_sample, len(texts)), replace=False)
     results = []
     total_claims, total_confab = 0, 0
-    consecutive_billing_errors = 0
+    consecutive_api_errors = 0
 
     for idx in tqdm(indices, desc="Checking confabulations"):
         try:
-            r = check_confabulation(client, texts[idx], explanations[idx])
-            consecutive_billing_errors = 0
+            r = check_confabulation(client, texts[idx], explanations[idx], provider)
+            consecutive_api_errors = 0
         except Exception as e:
             msg = str(e).lower()
-            if "credit balance" in msg or "billing" in msg:
-                consecutive_billing_errors += 1
-                if consecutive_billing_errors >= 2:
-                    print("\n  Confabulation check stopped: Anthropic credits exhausted.")
+            if any(s in msg for s in ("credit balance", "billing", "quota", "rate limit", "429")):
+                consecutive_api_errors += 1
+                if consecutive_api_errors >= 2:
+                    print(f"\n  Confabulation check stopped: {provider} API unavailable.")
                     break
-                continue
-            r = {"confabulated_claims": [], "n_total_claims": 0, "confabulation_rate": 0.0}
+            continue
 
         results.append({
             "idx": int(idx),
@@ -281,6 +306,7 @@ def run_behavioral_analysis(
     explanations: list[str],
     run_confabulation: bool = True,
     checkpoint_label: str = "final",
+    provider: str = AI_PROVIDER,
 ) -> dict:
     """
     Run all behavioral property analyses and save to disk.
@@ -303,7 +329,9 @@ def run_behavioral_analysis(
 
     # Confabulation (API calls — optional)
     if run_confabulation:
-        results["confabulation"] = compute_confabulation_rates(texts, explanations, n_sample=30)
+        results["confabulation"] = compute_confabulation_rates(
+            texts, explanations, n_sample=30, provider=provider
+        )
 
     # Save
     out_path = RESULTS_DIR / f"behavioral_properties_{checkpoint_label}.json"
