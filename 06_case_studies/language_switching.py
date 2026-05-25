@@ -36,7 +36,7 @@ from transformers import GPT2LMHeadModel, GPT2Tokenizer
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
     TARGET_MODEL_NAME, TARGET_LAYER, RESULTS_DIR,
-    ANTHROPIC_API_KEY, CLAUDE_MODEL, AV_MAX_TOKENS, SEED
+    AI_PROVIDER, SEED
 )
 
 # ── Language test cases ────────────────────────────────────────────────────────
@@ -125,7 +125,7 @@ def verbalize_activation_batch(
     tokens: list[str],
     positions: list[int],
     layer: int = TARGET_LAYER,
-    provider: str = "local",
+    provider: str = AI_PROVIDER,
 ) -> list[str]:
     """
     Verbalize activations at specified positions using the configured AV provider.
@@ -170,7 +170,7 @@ def analyze_language_switching(
     model: GPT2LMHeadModel,
     tokenizer: GPT2Tokenizer,
     device: str = "cpu",
-    provider: str = "local",
+    provider: str = AI_PROVIDER,
 ) -> dict:
     """
     Analyze language representation in NLA explanations for one language.
@@ -212,7 +212,7 @@ def analyze_language_switching(
     }
 
 
-def run_language_switching_analysis(device: str = "cpu", provider: str = "local") -> dict:
+def run_language_switching_analysis(device: str = "cpu", provider: str = AI_PROVIDER) -> dict:
     """
     Full language switching case study.
     Tests three language-seeded contexts + neutral baseline.

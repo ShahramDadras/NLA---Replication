@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "03_nla_components"))
 from config import (
     TRAINING_STEPS, TRAIN_BATCH_SIZE, GRPO_GROUP_SIZE,
     KL_BETA, AR_LR, LOG_REWARD_TRANSFORM,
-    RESULTS_DIR, DATA_DIR, SEED
+    RESULTS_DIR, DATA_DIR, SEED, AI_PROVIDER
 )
 from activation_verbalizer import ActivationVerbalizer
 from activation_reconstructor import (
@@ -67,7 +67,7 @@ def run_training(
     group_size: int = GRPO_GROUP_SIZE,
     save_every: int = 50,
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
-    provider: str = "anth",
+    provider: str = AI_PROVIDER,
 ) -> dict:
     """
     Main NLA training loop.
@@ -196,8 +196,7 @@ def load_training_log() -> list[dict]:
 
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # Define default provider fallback to prevent script failures during direct execution
-    provider = "local"  
+    provider = AI_PROVIDER
     print(f"Device: {device}")
 
     # Load baseline activations as a vanilla NumPy array
@@ -217,7 +216,7 @@ if __name__ == "__main__":
     ar_wrapper = ActivationReconstructorWrapper(ar_model, device=device, pca=pca)
 
     # Initialize the Activation Verbalizer component
-    av = ActivationVerbalizer()
+    av = ActivationVerbalizer(provider=provider)
 
     # Launch the training lifecycle with correct CUDA hardware acceleration mapping
     history = run_training(

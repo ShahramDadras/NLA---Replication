@@ -16,7 +16,7 @@ Tasks implemented (adapted for GPT-2 + open datasets):
   5. GENDER_INFERENCE       — infer subject gender from context (as in paper: "user traits")
 
 Judge modes:
-  api   — Claude judges via Anthropic API (requires credits)
+  api   — Gemini or Claude judges via API (requires credits/quota)
   local — text-matching heuristics applied to the explanation (no API needed)
 
 The local mode checks whether the relevant information is present in the
@@ -35,7 +35,8 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
-    ANTHROPIC_API_KEY, CLAUDE_MODEL, DATA_DIR, RESULTS_DIR,
+    ANTHROPIC_API_KEY, CLAUDE_MODEL, GEMINI_API_KEY, PROVIDER_MODELS,
+    DATA_DIR, RESULTS_DIR,
     PREDICTION_TASK_SAMPLES, SEED, AI_PROVIDER,
 )
 
@@ -44,23 +45,41 @@ JUDGE_SYSTEM = """You are a precise evaluator. Answer the given question based O
 provided NLA explanation. Do not use prior knowledge. Answer in one word or a short phrase."""
 
 
-def call_judge_api(client, explanation: str, question: str) -> str:
-    """Ask Claude to answer a question based ONLY on the NLA explanation."""
+def call_judge_api(client, explanation: str, question: str, provider: str) -> str:
+    """Ask the configured judge to answer based ONLY on the NLA explanation."""
+    prompt = (
+        f"NLA explanation:\n{explanation}\n\n"
+        f"Question: {question}\n\n"
+        "Answer based only on the explanation above. Use one word or a short phrase."
+    )
     try:
-        response = client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=50,
-            system=JUDGE_SYSTEM,
-            messages=[{
-                "role": "user",
-                "content": f"NLA explanation:\n{explanation}\n\nQuestion: {question}\n\nAnswer (based only on the explanation above):"
-            }]
-        )
-        return response.content[0].text.strip().lower()
+        if provider == "anth":
+            response = client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=50,
+                system=JUDGE_SYSTEM,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return response.content[0].text.strip().lower()
+
+        if provider == "gem":
+            from google.genai import types
+            response = client.models.generate_content(
+                model=PROVIDER_MODELS["gem"],
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=JUDGE_SYSTEM,
+                    max_output_tokens=128,
+                    temperature=0.0,
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                ),
+            )
+            return (response.text or "").strip().lower()
     except Exception as e:
         if "credit balance" in str(e).lower() or "billing" in str(e).lower():
             raise
         return ""
+    return ""
 
 
 # ── Local heuristic judges (no API) ───────────────────────────────────────────
@@ -133,6 +152,7 @@ def task_next_token_prediction(
     tokenizer,
     n: int = PREDICTION_TASK_SAMPLES,
     use_api: bool = False,
+    provider: str = AI_PROVIDER,
 ) -> dict:
     """
     Can the judge predict the next token from the explanation alone?
@@ -150,7 +170,7 @@ def task_next_token_prediction(
         if use_api:
             question = "What single word does the model most likely predict will come next?"
             try:
-                pred = call_judge_api(client, exp, question)
+                pred = call_judge_api(client, exp, question, provider)
             except Exception:
                 break
             pred_clean = pred.split()[0] if pred.split() else ""
@@ -175,6 +195,7 @@ def task_domain_classification(
     explanations: list[str],
     n: int = PREDICTION_TASK_SAMPLES,
     use_api: bool = False,
+    provider: str = AI_PROVIDER,
 ) -> dict:
     """Can the judge classify the domain from the explanation?"""
     pairs = [(t, e) for t, e in zip(texts, explanations) if infer_domain(t) is not None][:n]
@@ -188,7 +209,7 @@ def task_domain_classification(
         if use_api:
             question = f"Which domain does this text belong to? Choose from: {', '.join(domains)}"
             try:
-                pred = call_judge_api(client, exp, question)
+                pred = call_judge_api(client, exp, question, provider)
             except Exception:
                 break
             is_correct = any(d in pred for d in [true_domain])
@@ -212,6 +233,7 @@ def task_topic_extraction(
     explanations: list[str],
     n: int = PREDICTION_TASK_SAMPLES,
     use_api: bool = False,
+    provider: str = AI_PROVIDER,
 ) -> dict:
     """Can the judge identify the main topic from the explanation?"""
     pairs = [(t, e) for t, e in zip(texts, explanations) if extract_main_noun(t)][:n]
@@ -224,7 +246,7 @@ def task_topic_extraction(
         if use_api:
             question = "What is the single main topic or subject? (one word)"
             try:
-                pred = call_judge_api(client, exp, question)
+                pred = call_judge_api(client, exp, question, provider)
             except Exception:
                 break
             is_correct = true_topic in pred.lower() if true_topic else False
@@ -248,6 +270,7 @@ def task_sentiment_detection(
     explanations: list[str],
     n: int = PREDICTION_TASK_SAMPLES,
     use_api: bool = False,
+    provider: str = AI_PROVIDER,
 ) -> dict:
     """Can the judge detect sentiment from the explanation?"""
     pairs = [(t, e) for t, e in zip(texts, explanations)
@@ -261,7 +284,7 @@ def task_sentiment_detection(
         if use_api:
             question = "What is the overall sentiment? (positive, negative, or neutral)"
             try:
-                pred = call_judge_api(client, exp, question)
+                pred = call_judge_api(client, exp, question, provider)
             except Exception:
                 break
             is_correct = true_sent in pred
@@ -284,6 +307,7 @@ def task_gender_inference(
     explanations: list[str],
     n: int = PREDICTION_TASK_SAMPLES,
     use_api: bool = False,
+    provider: str = AI_PROVIDER,
 ) -> dict:
     """Can the judge infer the subject's gender from the explanation?"""
     pairs = [(t, e) for t, e in zip(texts, explanations) if infer_gender(t)][:n]
@@ -296,7 +320,7 @@ def task_gender_inference(
         if use_api:
             question = "What is the gender of the main subject? (male or female)"
             try:
-                pred = call_judge_api(client, exp, question)
+                pred = call_judge_api(client, exp, question, provider)
             except Exception:
                 break
             is_correct = true_gender in pred.lower()
@@ -326,34 +350,52 @@ def run_all_prediction_tasks(
     """
     Run all five prediction tasks and save results.
 
-    provider="local"  → text-matching heuristics, no API calls.
-    provider="anth"   → Claude as judge (requires credits).
+    provider="gem"   → Gemini as judge (uses Google AI Studio billing/quota).
+    provider="anth"  → Claude as judge (uses Anthropic credits).
+    other providers  → text-matching heuristics, no judge API calls.
     Returns dict mapping task_name → accuracy.
     """
-    use_api = (provider != "local") and bool(ANTHROPIC_API_KEY)
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if use_api else None
+    use_api = provider in ("anth", "gem")
+    if provider == "anth" and ANTHROPIC_API_KEY:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    elif provider == "gem" and GEMINI_API_KEY:
+        from google import genai
+        client = genai.Client(api_key=GEMINI_API_KEY)
+    else:
+        use_api = False
+        client = None
 
     if use_api:
-        print(f"  Prediction tasks: using Claude API judge ({provider})")
+        print(f"  Prediction tasks: using {provider} API judge")
     else:
         print("  Prediction tasks: using local text-matching judge (no API)")
 
     task_results = {}
 
     if tokenizer:
-        r1 = task_next_token_prediction(client, texts, explanations, tokenizer, use_api=use_api)
+        r1 = task_next_token_prediction(
+            client, texts, explanations, tokenizer, use_api=use_api, provider=provider
+        )
         task_results["next_token_prediction"] = r1["accuracy"]
 
-    r2 = task_domain_classification(client, texts, explanations, use_api=use_api)
+    r2 = task_domain_classification(
+        client, texts, explanations, use_api=use_api, provider=provider
+    )
     task_results["domain_classification"] = r2["accuracy"]
 
-    r3 = task_topic_extraction(client, texts, explanations, use_api=use_api)
+    r3 = task_topic_extraction(
+        client, texts, explanations, use_api=use_api, provider=provider
+    )
     task_results["topic_extraction"] = r3["accuracy"]
 
-    r4 = task_sentiment_detection(client, texts, explanations, use_api=use_api)
+    r4 = task_sentiment_detection(
+        client, texts, explanations, use_api=use_api, provider=provider
+    )
     task_results["sentiment_detection"] = r4["accuracy"]
 
-    r5 = task_gender_inference(client, texts, explanations, use_api=use_api)
+    r5 = task_gender_inference(
+        client, texts, explanations, use_api=use_api, provider=provider
+    )
     task_results["gender_inference"] = r5["accuracy"]
 
     print("\nPrediction Task Results:")

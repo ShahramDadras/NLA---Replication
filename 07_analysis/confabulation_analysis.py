@@ -23,14 +23,14 @@ import re
 import json
 import time
 import numpy as np
-import anthropic
 from pathlib import Path
 from collections import defaultdict, Counter
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
-    ANTHROPIC_API_KEY, CLAUDE_MODEL, RESULTS_DIR, SEED
+    ANTHROPIC_API_KEY, CLAUDE_MODEL, GEMINI_API_KEY, PROVIDER_MODELS,
+    RESULTS_DIR, SEED, AI_PROVIDER
 )
 
 THEMATIC_JUDGE_SYSTEM = """You are a precise research evaluator for LLM interpretability.
@@ -49,23 +49,44 @@ Respond as JSON only: {"thematic": int, "factual": int, "confabulations": [str, 
 
 
 def rate_explanation(
-    client: anthropic.Anthropic,
+    client,
     text: str,
     explanation: str,
+    provider: str,
 ) -> dict:
     """Rate one explanation for thematic vs factual accuracy."""
+    prompt = (
+        f"ORIGINAL TEXT:\n{text[:600]}\n\n"
+        f"NLA EXPLANATION:\n{explanation[:500]}\n\n"
+        "Rate the explanation:"
+    )
     for attempt in range(3):
         try:
-            response = client.messages.create(
-                model=CLAUDE_MODEL,
-                max_tokens=200,
-                system=THEMATIC_JUDGE_SYSTEM,
-                messages=[{
-                    "role": "user",
-                    "content": f"ORIGINAL TEXT:\n{text[:600]}\n\nNLA EXPLANATION:\n{explanation[:500]}\n\nRate the explanation:"
-                }]
-            )
-            raw = response.content[0].text.strip()
+            if provider == "anth":
+                response = client.messages.create(
+                    model=CLAUDE_MODEL,
+                    max_tokens=200,
+                    system=THEMATIC_JUDGE_SYSTEM,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                raw = response.content[0].text.strip()
+            elif provider == "gem":
+                from google.genai import types
+                response = client.models.generate_content(
+                    model=PROVIDER_MODELS["gem"],
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=THEMATIC_JUDGE_SYSTEM,
+                        max_output_tokens=512,
+                        temperature=0.0,
+                        response_mime_type="application/json",
+                        thinking_config=types.ThinkingConfig(thinking_budget=0),
+                    ),
+                )
+                raw = (response.text or "").strip()
+            else:
+                raise ValueError(f"Unsupported confabulation judge provider: {provider!r}")
+
             json_match = re.search(r'\{.*\}', raw, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
@@ -145,17 +166,23 @@ def run_confabulation_analysis(
     texts: list[str],
     explanations: list[str],
     n_sample: int = 50,
+    provider: str = AI_PROVIDER,
 ) -> dict:
     """
     Comprehensive confabulation characterization on n_sample examples.
 
     Returns structured results dict.
     """
-    if not ANTHROPIC_API_KEY:
-        raise ValueError("ANTHROPIC_API_KEY not set")
+    if provider == "anth" and ANTHROPIC_API_KEY:
+        import anthropic
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    elif provider == "gem" and GEMINI_API_KEY:
+        from google import genai
+        client = genai.Client(api_key=GEMINI_API_KEY)
+    else:
+        raise ValueError(f"No API key available for confabulation judge provider {provider!r}")
 
     np.random.seed(SEED)
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     sample_idx = np.random.choice(len(texts), size=min(n_sample, len(texts)), replace=False)
 
@@ -164,14 +191,14 @@ def run_confabulation_analysis(
     specificity_data = []
 
     print(f"\n{'='*60}")
-    print(f"Confabulation Analysis ({n_sample} samples)")
+    print(f"Confabulation Analysis ({n_sample} samples, judge={provider})")
     print(f"{'='*60}")
 
     for idx in tqdm(sample_idx, desc="Rating explanations"):
         text = texts[idx]
         exp = explanations[idx]
 
-        ratings = rate_explanation(client, text, exp)
+        ratings = rate_explanation(client, text, exp, provider)
         if ratings.get("_api_failed"):
             continue  # skip; don't pollute stats with sentinel values
         thematic_scores.append(ratings["thematic"])
@@ -191,7 +218,7 @@ def run_confabulation_analysis(
 
     if not thematic_scores:
         print("\n[ERROR] All API calls failed — no valid ratings collected.")
-        print("  Check ANTHROPIC_API_KEY credits and retry.")
+        print(f"  Check {provider} API key, quota, billing, and retry.")
         return {
             "n_samples": 0,
             "error": "all_api_calls_failed",

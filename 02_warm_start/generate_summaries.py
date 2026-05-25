@@ -195,7 +195,7 @@ def generate_all_summaries(
         "deep": DEEPSEEK_API_KEY,
         "gpt":  OPENAI_API_KEY,
     }
-    if not MOCK_API and not _key_map.get(provider):
+    if provider != "local" and not MOCK_API and not _key_map.get(provider):
         raise ValueError(f"No API key found for provider '{provider}'.")
 
     client, model = _make_client(provider)

@@ -153,6 +153,8 @@ class ActivationVerbalizer:
             self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         elif provider == "gem":
             from google import genai
+            if not GEMINI_API_KEY:
+                raise ValueError("GEMINI_API_KEY not set.")
             self.client = genai.Client(api_key=GEMINI_API_KEY)
         elif provider == "deep":
             from openai import OpenAI
