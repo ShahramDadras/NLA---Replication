@@ -5,7 +5,7 @@ Design choices documented here:
 - Target model: GPT-2 small (117M params). Small enough for free-tier GPU (T4/P100),
   well-studied, publicly available. d_model=768, 12 layers.
 - Target layer: layer 8 (index 7). Middle-to-late, per paper recommendation.
-- AV: Claude API (claude-sonnet-4-20250514) as proxy verbalizer. 
+- AV: Gemini API (gemini-2.5-flash) as proxy verbalizer.
   Justification: we cannot fine-tune GPT-2 to inject raw activation embeddings
   without a full training run; the API approach lets us study the pipeline
   faithfully while staying within compute constraints.
@@ -89,16 +89,16 @@ DEEPSEEK_API_KEY  = _read_key("DeepSeek-API-key.txt", "DEEPSEEK_API_KEY")
 OPENAI_API_KEY    = _read_key("ChatGPT-Api-key.txt",  "OPENAI_API_KEY")
 
 # ── AI Provider ───────────────────────────────────────────────────────────────
-# Which provider to use for the verbalizer (AV). Overridden by --ai CLI arg.
-# Choices: "anth" | "gem" | "deep" | "gpt"
-AI_PROVIDER = "local"
+# Which provider to use for the verbalizer (AV) and warm-start summaries.
+# Overridden by --ai CLI arg. Choices: "anth" | "gem" | "deep" | "gpt" | "local"
+AI_PROVIDER = "gem"
 
 # Model names per provider
 PROVIDER_MODELS = {
     # ── External API providers ─────────────────────────────────────────────────
     # These produce high-quality verbalizations but require credits/quota.
     "anth":  "claude-sonnet-4-6",      # best quality; needs Anthropic credits
-    "gem":   "gemini-2.0-flash-lite",  # free tier but strict RPM quota
+    "gem":   "gemini-2.5-flash",  # free tier but strict RPM quota
     "deep":  "deepseek-chat",          # cheapest paid option (~$0.001/call)
     "gpt":   "gpt-4o-mini",            # OpenAI; moderate cost
     # ── Local provider (no API, no cost) ──────────────────────────────────────

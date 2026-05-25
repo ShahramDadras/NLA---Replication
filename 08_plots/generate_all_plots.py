@@ -169,7 +169,7 @@ def plot_fve_over_training():
     ax1.set_xlabel("Training Step")
     ax1.set_ylabel("Fraction of Variance Explained (FVE)")
     ax1.set_title("FVE During NLA Training")
-    ax1.legend(loc="lower right")
+    ax1.legend(loc="upper right")
     ax1.set_ylim(-0.05, 1.0)
     ax1.set_xlim(0, max(steps))
 

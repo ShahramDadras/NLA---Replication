@@ -1,6 +1,6 @@
 # Natural Language Autoencoders: Replication on GPT-2
 
-> **PhD Recruitment Task — KTH / Prof. Monperrus, 2026**
+> **PhD Recruitment Task - KTH / Prof. Monperrus, 2026**
 > Reimplementation and evaluation of the NLA approach from [Fraser-Taliente et al., Anthropic, May 2026](https://transformer-circuits.pub/2026/nla/index.html).
 
 ---
@@ -32,13 +32,13 @@ Natural Language Autoencoders (NLAs) are an unsupervised method for producing na
 This repository replicates the NLA methodology on **GPT-2 small** (117M parameters), using:
 
 - **Target model**: GPT-2 (12 layers, d=768, layer 7 as the NLA target)
-- **Activation Verbalizer (AV)**: Claude Sonnet 4.6 (via API) as a proxy
+- **Activation Verbalizer (AV)**: Gemini API (`gemini-2.5-flash`) as a proxy
 - **Activation Reconstructor (AR)**: SentenceTransformer encoder + trained MLP
 - **Dataset**: WikiText-2 (500 text snippets)
 - **Training**: Supervised warm-start + RL-style reward optimization
 - **Primary metric**: Fraction of Variance Explained (FVE)
 
-**Final result: FVE = −0.074** (cosine similarity = 0.751). The negative FVE is informative rather than a failure — it reflects a PCA bottleneck and a proxy verbalizer that cannot be fine-tuned on GPT-2's activation distribution. The gap to the paper, and why cosine similarity (0.75) and FVE (−0.07) can diverge, is analyzed in [Section 10](#10-discussion-why-our-fve-differs-from-the-paper).
+**Final result: FVE = −0.095** (cosine similarity = 0.750). The negative FVE is informative rather than a failure: it reflects a PCA bottleneck and a proxy verbalizer that cannot be fine-tuned on GPT-2's activation distribution. The gap to the paper, and why cosine similarity (0.75) and FVE (−0.10) can diverge, is analyzed in [Section 10](#10-discussion-why-our-fve-differs-from-the-paper).
 
 ---
 
@@ -55,23 +55,27 @@ h_l  ──→  Activation Verbalizer (AV)  ──→  z (text)  ──→  Acti
 
 ![NLA Architecture](figures/fig1_architecture.png)
 
-*Figure 1: NLA architecture. The activation verbalizer translates a residual-stream activation into a structured natural-language explanation; the reconstructor maps the explanation back to activation space.*
+*Figure 1: Evaluation-awareness detection pipeline with NLAs. The workflow constructs labeled evaluation-aware and evaluation-unaware examples, collects hidden states from a pretrained LLM, trains sparse nonlinear autoencoders on layer activations, uses top NLA features to predict evaluation awareness, and interprets the most important features across contexts.*
 
 ### Training Objective
 
 The NLA minimizes reconstruction error:
 
-$$\mathcal{L}(\phi, \theta) = \mathbb{E}_{h_l \sim \mathcal{H}} \, \mathbb{E}_{z \sim \text{AV}_\phi(\cdot \mid h_l)} \left[ \|h_l - \text{AR}_\theta(z)\|_2^2 \right]$$
+$$
+\mathcal{L}(\phi, \theta) = \mathbb{E}_{h_l \sim \mathcal{H}} \, \mathbb{E}_{z \sim \text{AV}_\phi(\cdot \mid h_l)} \left[ \|h_l - \text{AR}_\theta(z)\|_2^2 \right]
+$$
 
 with **Fraction of Variance Explained** as the primary evaluation metric:
 
-$$\text{FVE} = 1 - \frac{\text{Var}(h_l - \hat{h}_l)}{\text{Var}(h_l)}$$
+$$
+\text{FVE} = 1 - \frac{\text{Var}(h_l - \hat{h}_l)}{\text{Var}(h_l)}
+$$
 
 FVE = 0 corresponds to always predicting the mean activation; FVE = 1 is perfect reconstruction.
 
 ### Training Procedure
 
-1. **Warm-start (SFT)**: Train AV and AR on (activation, Claude-generated-summary) pairs. Produces FVE ≈ 0.30–0.35.
+1. **Warm-start (SFT)**: Train AV and AR on (activation, Gemini-generated-summary) pairs. Produces FVE ≈ 0.30–0.35.
 2. **RL update (AV)**: For each activation, sample *k* candidate explanations; assign reward $r = -\log\|h_l - \text{AR}(z)\|^2$; apply GRPO-style update.
 3. **Regression update (AR)**: One gradient step on MSE loss with the best-rewarded explanations.
 
@@ -81,16 +85,16 @@ Steps 2–3 are applied jointly per batch. The paper uses $k=4$ candidate descri
 
 ## 3. Design Choices and Simplifications
 
-| Aspect | Paper | This work | Justification |
-| --- | --- | --- | --- |
-| Target model | Claude Haiku/Opus | GPT-2 small (117M) | Free-tier GPU compatible; well-studied architecture |
-| AV architecture | Fine-tuned copy of M | Claude API (sonnet-4-20250514) | Injecting raw activations as token embeddings requires LLM fine-tuning impractical within compute budget |
-| AR architecture | Truncated M + affine map | SentenceTransformer + MLP | Functionally equivalent; avoids full model fine-tuning |
-| Training scale | Frontier models, thousands of steps | 200 RL steps | Compute constraint; captures the FVE trend |
-| Dataset | Large pretraining corpus (internal) | WikiText-2 (500 samples) | The paper uses Anthropic-internal data, which is inaccessible. WikiText-2 is the natural proxy: it is the standard pretraining benchmark for GPT-2, so the activations are in-distribution, encyclopedic, and long enough to produce rich final-token representations. |
-| Layer | Middle-to-late | Layer 7 (of 12) | Per paper recommendation; ablated across all layers |
+| Aspect          | Paper                               | This work                         | Justification                                                                                                                                                                                                                                                          |
+| --------------- | ----------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Target model    | Claude Haiku/Opus                   | GPT-2 small (117M)                | Free-tier GPU compatible; well-studied architecture                                                                                                                                                                                                                    |
+| AV architecture | Fine-tuned copy of M                | Gemini API (`gemini-2.5-flash`) | Injecting raw activations as token embeddings requires LLM fine-tuning impractical within compute budget                                                                                                                                                               |
+| AR architecture | Truncated M + affine map            | SentenceTransformer + MLP         | Functionally equivalent; avoids full model fine-tuning                                                                                                                                                                                                                 |
+| Training scale  | Frontier models, thousands of steps | 200 RL steps                      | Compute constraint; captures the FVE trend                                                                                                                                                                                                                             |
+| Dataset         | Large pretraining corpus (internal) | WikiText-2 (500 samples)          | The paper uses Anthropic-internal data, which is inaccessible. WikiText-2 is the natural proxy: it is the standard pretraining benchmark for GPT-2, so the activations are in-distribution, encyclopedic, and long enough to produce rich final-token representations. |
+| Layer           | Middle-to-late                      | Layer 7 (of 12)                   | Per paper recommendation; ablated across all layers                                                                                                                                                                                                                    |
 
-**The key methodological simplification** is using the Claude API as a proxy verbalizer rather than fine-tuning GPT-2 to inject activations. This is a reasonable and honest approximation — it preserves the core pipeline semantics (activation → text → reconstruction) and allows us to study FVE, behavioral properties, and the case studies faithfully.
+**The key methodological simplification** is using the Gemini API as a proxy verbalizer rather than fine-tuning GPT-2 to inject activations. This is a reasonable and honest approximation, it preserves the core pipeline semantics (activation → text → reconstruction) and allows us to study FVE, behavioral properties, and the case studies faithfully.
 
 ---
 
@@ -107,11 +111,11 @@ nla_replication/
 │   └── extract_activations.py        # Extract GPT-2 residual stream activations
 │
 ├── 02_warm_start/
-│   ├── generate_summaries.py         # Generate (text, summary) pairs via Claude API(it depend args)
+│   ├── generate_summaries.py         # Generate (text, summary) pairs via selected provider
 │   └── supervised_warmstart.py       # Supervised training of AR on (summary, h_l) pairs
 │
 ├── 03_nla_components/
-│   ├── activation_verbalizer.py      # AV: activation + context → explanation (Claude API)
+│   ├── activation_verbalizer.py      # AV: activation + context → explanation via selected provider
 │   └── activation_reconstructor.py  # AR: explanation → reconstructed activation (MLP)
 │
 ├── 04_training/
@@ -145,13 +149,15 @@ nla_replication/
 
 ```bash
 pip install -r requirements.txt
-export ANTHROPIC_API_KEY=sk-ant-...   # Required for AV and evaluation
+export GEMINI_API_KEY=...   # Example: required when using the Gemini provider
 ```
+
+The provider can be selected with the `--ai` argument. For example, use `--ai gem` for Gemini, `--ai anth` for Claude/Anthropic, `--ai deep` for DeepSeek, or `--ai local` to run without an API key.
 
 ### Full pipeline (recommended on Colab/Kaggle T4)
 
 ```bash
-python main.py --device cuda
+python main.py --device cuda --ai gem
 ```
 
 ### Step-by-step
@@ -160,8 +166,8 @@ python main.py --device cuda
 # 1. Extract GPT-2 activations from WikiText-2
 python -m 01_data_collection.extract_activations
 
-# 2. Generate warm-start summaries (calls Claude API, ~300 calls)
-python -m 02_warm_start.generate_summaries
+# 2. Generate warm-start summaries with the selected provider
+python main.py --step 2 --ai gem
 
 # 3. Train AR warm-start
 python -m 02_warm_start.supervised_warmstart
@@ -180,7 +186,7 @@ python main.py --step 8
 ```
 
 **Estimated runtime**: ~4 hours end-to-end on Colab T4 (most time is API calls).
-**API cost estimate**: ~$8–15 USD in Claude API calls for 500 samples + evaluation.
+**API cost estimate**: Gemini free-tier usage for the default `--ai gem` run, subject to rate limits. Paid providers may incur cost.
 
 ---
 
@@ -188,48 +194,52 @@ python main.py --step 8
 
 ### FVE Over Training
 
-The primary finding is that FVE improves over training steps, growing approximately linearly in log(steps) — consistent with the paper.
+The primary finding is that FVE improves over training steps, growing approximately linearly in log(steps), consistent with the paper.
 
 ![FVE over training](figures/fig2_fve_training.png)
 
 *Figure 2: FVE during NLA training. Left: FVE vs. training steps. Right: FVE plotted against log(steps), showing the approximately linear relationship reported in the paper. Shading indicates ±1 std over batches.*
 
-| Checkpoint | FVE | Cosine similarity |
-| --- | --- | --- |
-| Random baseline | ≈ −0.42 | — |
-| Mean prediction (lower bound) | 0.00 | — |
-| After 200 RL steps (this work) | **−0.074** | **0.751** |
-| Paper (Opus 4.6, full training) | 0.60–0.80 | — |
+| Checkpoint                      | FVE               | Cosine similarity |
+| ------------------------------- | ----------------- | ----------------- |
+| Random baseline                 | ≈ −0.42         | —                |
+| Mean prediction (lower bound)   | 0.00              | —                |
+| After 200 RL steps (this work)  | **−0.095** | **0.750**   |
+| Paper (Opus 4.6, full training) | 0.60–0.80        | —                |
 
-> **Note on negative FVE.** FVE = −0.074 means reconstruction variance slightly exceeds activation variance. This is expected when (a) only 20 PCA components are predicted (the remaining 82% of variance is unrecoverable by construction), and (b) the verbalizer has no fine-tuning on GPT-2's activation distribution. The cosine similarity of 0.751 shows the reconstructor correctly identifies the *direction* of the activation — the information loss is in magnitude, not orientation. See Section 10 for full analysis.
+> **Note on negative FVE.** FVE = −0.095 means the residual variance is about 9.5% larger than the activation variance in the normalized evaluation space. This is expected for an underpowered setup where (a) the AR predicts only 20 PCA coordinates before mapping back to 768 dimensions, and (b) the Gemini proxy verbalizer was not fine-tuned on GPT-2's activation distribution. The cosine similarity of 0.750 shows the reconstructor still captures much of the activation *direction*, even though the reconstruction is not accurate enough to achieve positive FVE. See Section 10 for full analysis.
 
 ### Prediction Task Accuracy
 
 The paper evaluates NLA quality by giving an LLM judge only the explanation (no original text) and measuring accuracy on five tasks. Accuracy should improve with training if explanations become more informative.
 
-All results below used the **local text-matching judge** (`--ai local`), because API credits were insufficient for Claude-judged evaluation. The local judge works only for next-token prediction (string containment); the remaining four tasks require a reasoning judge to work correctly.
+All results below used the **Gemini judge** (`judge: "gem"` in `results/prediction_tasks_final.json`). The scores remain low, indicating that the current explanations are not yet reliably informative enough for downstream prediction tasks.
 
 ![Prediction task accuracy](figures/fig3_prediction_tasks.png)
 
-*Figure 3: Prediction task accuracy at the final checkpoint (local heuristic judge). Next-token prediction (0.68) reflects that the local verbalizer often echoes nearby tokens; the zero scores on domain/sentiment/gender reflect the limits of the local judge, not the pipeline.*
+*Figure 3: Prediction task accuracy at the final checkpoint with the Gemini judge. Scores are near zero across tasks, showing that the current verbalizer/reconstructor setup does not yet expose enough task-relevant information in the explanations.*
 
-| Task | After 200 steps (local judge) | Expected with API judge | Paper (qualitative) |
-| --- | --- | --- | --- |
-| Next-token prediction | **0.68** | — | ↑ with training |
-| Domain classification | 0.00 | >0.40 | ↑ with training |
-| Topic extraction | 0.04 | >0.30 | ↑ with training |
-| Sentiment detection | 0.00 | >0.50 | ↑ with training |
-| Gender inference | 0.00 | >0.55 | ↑ with training |
+The problem is that prediction-task accuracy is near zero. The likely reason is that this specific AV/AR configuration, at this checkpoint, is not doing the translation job well enough yet. As a result, it fails to extract and expose the task-relevant information from GPT-2's internal activations into natural-language explanations: the relevant internal signal remains inside the model because the NLA translation layer is not high-fidelity enough in this run.
 
-> To reproduce with the API judge: set `AI_PROVIDER = "anth"` in [config.py](config.py) and re-run `python main.py --step 5`.
+When the setup is not tuned well enough, the NLA explanations become too noisy or vague, preventing an external judge from successfully predicting what the model is doing from the explanations alone. This is what the low Figure 3 scores suggest for the current Gemini-based run.
+
+| Task                  | After 200 steps (Gemini judge) | Paper (qualitative) |
+| --------------------- | ------------------------------ | ------------------- |
+| Next-token prediction | **0.00**                 | ↑ with training    |
+| Domain classification | **0.056**                | ↑ with training    |
+| Topic extraction      | **0.04**                 | ↑ with training    |
+| Sentiment detection   | **0.00**                 | ↑ with training    |
+| Gender inference      | **0.00**                 | ↑ with training    |
+
+> To reproduce with a different API judge: set `AI_PROVIDER` in [config.py](config.py) and re-run `python main.py --step 5`.
 
 ### Per-Dimension FVE
 
-Not all model dimensions are equally reconstructible. Only **18.6%** of GPT-2's 768 residual-stream dimensions show positive per-dimension FVE — the majority are negative, meaning the PCA-20 bottleneck discards information that cannot be recovered regardless of AR quality.
+Not all model dimensions are equally reconstructible. Only **24.0%** of GPT-2's 768 residual-stream dimensions show positive per-dimension FVE, the majority are negative, meaning the PCA-20 bottleneck discards information that cannot be recovered regardless of AR quality.
 
 ![Per-dimension FVE](figures/fig4_per_dim_fve.png)
 
-*Figure 4: Distribution of per-dimension FVE across GPT-2's 768 residual stream dimensions. Only ~18.6% of dimensions show positive FVE. This is the primary driver of the negative overall FVE: the PCA-20 projection captures the largest-variance directions but sacrifices reconstruction quality on the remaining 82% of the space.*
+*Figure 4: Distribution of per-dimension FVE across GPT-2's 768 residual stream dimensions. Only ~24.0% of dimensions show positive FVE. This is the primary driver of the negative overall FVE: the PCA-20 projection captures the largest-variance directions but sacrifices reconstruction quality on most of the space.*
 
 ### Layer Sensitivity
 
@@ -247,11 +257,11 @@ We systematically measure the NLA's behavioral properties, replicating the paper
 
 ![Behavioral properties](figures/fig5_behavioral_properties.png)
 
-*Figure 6: Behavioral property measurements. Left: steganography score (3-gram overlap between explanation and original text; low is good). Middle: confabulation pattern — thematic accuracy consistently exceeds factual accuracy, matching the paper. Right: explanation length distribution.*
+*Figure 6: Behavioral property measurements. Left: steganography score, measured as 3-gram(**consecutive words**) overlap between source context and explanation, with lower values indicating less copying. Middle: confabulation scores, where thematic accuracy (0.14) is slightly higher than factual accuracy (0.12). Right: explanation-length distribution for NLA verbalizations, with a mean of about 104 words.*
 
 ### Steganography
 
-The AV should genuinely verbalize the activation content, not copy the input context verbatim. We measure 3-gram overlap between explanations and source texts. **Mean steganography score: 0.000079** (near zero) — the AV is not copying context verbatim. This is the one behavioral property where our result is *better* than the paper's bound: the local GPT-2 verbalizer generates generic continuations that share almost no 3-grams with the source.
+The AV should genuinely verbalize the activation content, not copy the input context verbatim. We measure 3-gram overlap between explanations and source texts. **Mean steganography score: 0.000** the AV is not copying context verbatim. This is the one behavioral property where our result is ***better* **than the paper's bound: the Gemini verbalizer generates short explanations that share no measured 3-grams with the source.
 
 ### Reward Distribution
 
@@ -273,13 +283,15 @@ We replicate Section 3.1 of the paper on GPT-2. The prompt:
 
 The model must complete the second line. We verbalize the activation at the final token ("grab it,") and check whether the NLA explanation contains rhyme-class words (rabbit/habit/cabinet).
 
-**Finding**: The local GPT-2 verbalizer **did not detect a rhyme-planning signal** (`rabbit_rhyme_detected: false`). The verbalization produced at the final token (",") was incoherent (see `results/case_study_poetry.json`), which is expected — GPT-2 without instruction tuning cannot introspect its own activations in structured prose. This case study requires the Claude API verbalizer to replicate meaningfully.
+**Finding**: The Gemini verbalizer **did not detect a rhyme-planning signal** (`rabbit_rhyme_detected: false`). The verbalization produced at the final token (",") was too generic to expose the expected rhyme-class words (see `results/case_study_poetry.json`).
 
-**Why this matters**: The failure is informative. It demonstrates that rhyme-planning verbalization is a capability of the *verbalizer*, not a property of GPT-2's activations alone. Re-running with `--ai anth` (Claude API) would provide a fair test of whether GPT-2 layer-7 activations encode forward rhyme constraints.
+**Why this matters**: The failure is informative. It demonstrates that rhyme-planning verbalization depends strongly on the *verbalizer*, not only on GPT-2's activations. Re-running with a stronger or different API provider would provide a fairer test of whether GPT-2 layer-7 activations encode forward rhyme constraints.
 
 **Steering experiment** (architecture validated, result pending full run): The steering vector computation is implemented in [06_case_studies/planning_in_poetry.py](06_case_studies/planning_in_poetry.py). The formula applied is:
 
-$$h \rightarrow h + \alpha \cdot \|h\| \cdot \frac{\Delta}{\|\Delta\|}$$
+$$
+h \rightarrow h + \alpha \cdot \|h\| \cdot \frac{\Delta}{\|\Delta\|}
+$$
 
 The code compiles and runs; replicating the steering result requires a working rhyme-detection verbalization first.
 
@@ -289,40 +301,40 @@ We test the paper's Section 3.2 finding: that NLA explanations reflect the model
 
 ![Language switching](figures/fig6_language_switching.png)
 
-*Figure 8: Language mention frequency in NLA explanations across token positions. Left/Middle: French- and Spanish-seeded contexts show high target-language mention rates before any foreign tokens appear. Right: neutral context shows no such signal.*
+*Figure 8: Language mention frequency in NLA explanations across token positions. The latest Gemini-verbalizer run shows no French signal, a weak Spanish signal, and no neutral baseline signal.*
 
-**Finding**: In French-seeded contexts ("The French ambassador said 'Bonjour'..."), NLA explanations at GPT-2 layer 7 mention French-related concepts at rates 4–6× higher than in neutral contexts, beginning well before any French tokens are generated. This mirrors the paper's main finding at much smaller scale.
+**Finding**: The latest Gemini-verbalizer run does **not** robustly replicate the paper's language-switching result. French-seeded contexts have a mean language-mention rate of 0.000, Spanish-seeded contexts have a weak mean rate of 0.023, and neutral contexts remain at 0.000. This suggests the experiment is implemented, but the current proxy verbalizer is too weak to expose the pre-token language signal reliably.
 
 ---
 
 ## 9. Confabulation Analysis
 
-NLA explanations can contain verifiably false claims. We replicate the paper's confabulation characterization (Section 5.2) on 50 random examples, using Claude as a judge to rate both thematic and factual accuracy.
+NLA explanations can contain verifiably false claims. We replicate the paper's confabulation characterization (Section 5.2) on 40 random examples, using an LLM judge to rate both thematic and factual accuracy.
 
 ![Confabulation analysis (embedded in behavioral properties figure)](figures/fig5_behavioral_properties.png)
 
 **Key findings** (consistent with paper):
 
-| Metric | Value |
-| --- | --- |
-| Thematic accuracy (0–1) | **0.333 ± 0.000** |
-| Factual accuracy (0–1) | **0.333 ± 0.000** |
-| Thematic − Factual gap | **0.000** |
+| Metric                   | Value                    |
+| ------------------------ | ------------------------ |
+| Thematic accuracy (0–1) | **0.142 ± 0.324** |
+| Factual accuracy (0–1)  | **0.117 ± 0.294** |
+| Thematic − Factual gap  | **0.025**          |
 
-**Why both scores are exactly 0.333:** The confabulation judge (`07_analysis/confabulation_analysis.py`) calls Claude for each of the 40 samples. The API returned errors for all 40 calls (credits exhausted at evaluation time), triggering the fallback `{"thematic": 1, "factual": 1}` every time. Score 1/3 = 0.333. The distribution `[0, 0, 40, 0]` — all samples landing in exactly the same bin — is a degenerate artifact of the uniform fallback, not a real result.
+**Interpretation:** Thematic accuracy slightly exceeds factual accuracy, but the gap is small in this run. The distribution is highly skewed toward low scores: 33/40 samples received the lowest thematic score and 34/40 received the lowest factual score. This is consistent with the current explanations being short and often generic rather than richly grounded.
 
-The code and judge prompt are implemented correctly; see [07_analysis/confabulation_analysis.py](07_analysis/confabulation_analysis.py). Re-running with sufficient API credits will produce a real distribution. The expected finding (thematic > factual accuracy by ~0.2) is grounded in the paper and reproduced in prior NLA work.
+The code and judge prompt are implemented in [07_analysis/confabulation_analysis.py](07_analysis/confabulation_analysis.py). Wider evaluation sets and stronger verbalizers would be needed before treating the exact gap size as stable.
 
 ---
 
 ## 10. Discussion: Why Our FVE Differs From the Paper
 
-The paper reports 0.6–0.8 FVE on Claude Haiku/Opus models. Our FVE is **−0.074** with a cosine similarity of 0.751. The negative FVE is informative — it quantifies where the information loss occurs — and is attributable to four compounding factors:
+The paper reports 0.6–0.8 FVE on Claude Haiku/Opus models. Our FVE is **−0.095** with a cosine similarity of 0.750. The negative FVE is informative — it quantifies where the information loss occurs — and is attributable to four compounding factors:
 
 **1. PCA-20 bottleneck (primary cause)**
-We project activations to 20 PCA components before AR training. PCA-20 captures ~47% of activation variance (confirmed by `eval_results.json`: `per_dim_fve_positive_fraction = 0.186`). The remaining 53% is discarded *before reconstruction begins* and cannot be recovered regardless of AR quality. FVE can never exceed the variance captured by the PCA basis; with 47% capture rate, a perfect AR would achieve FVE ≈ 0.47 − ε. Our −0.074 is 0.074 below the mean baseline — the AR is adding a small amount of noise on top of an already-lossy projection.
+We project activations to 20 PCA components before AR training. In the latest evaluation, `eval_results.json` reports that **24.0%** of residual-stream dimensions have positive per-dimension FVE. The remaining dimensions are not reconstructed above the mean-prediction baseline, so a large share of the activation space remains poorly recovered. Our −0.095 is 0.095 below the mean baseline — the AR is adding a small amount of noise on top of an already-lossy projection.
 
-The cosine similarity of 0.751 tells a different story: the *direction* of the reconstructed vector is 75% aligned with the ground truth. The AR has learned something meaningful about activation geometry; it just cannot recover the magnitude components lost in PCA.
+The cosine similarity of 0.750 tells a different story: the *direction* of the reconstructed vector is about 75% aligned with the ground truth. The AR has learned something meaningful about activation geometry; it just cannot recover enough variance for positive FVE.
 
 **2. AV implementation gap**
 The paper fine-tunes the AV as a copy of the target LLM, injecting activations directly as token embeddings. Our proxy verbalizer (GPT-2 LM head in local mode) sees only a compact numerical fingerprint of the activation (top-8 dimensions, norm, mean) — not the raw vector. It has no instruction tuning and no world knowledge about what GPT-2's internals mean. The resulting descriptions are generic and carry little activation-specific information.
@@ -335,7 +347,7 @@ GPT-2 (d=768, 12 layers) packs information more densely per dimension than front
 
 ### The key finding: cosine similarity vs. FVE divergence
 
-The gap between cosine similarity (0.751) and FVE (−0.074) is itself a measurable and interesting result. It means:
+The gap between cosine similarity (0.750) and FVE (−0.095) is itself a measurable and interesting result. It means:
 
 - The NLA has learned the *orientation* of activations (useful for steering)
 - But not their *magnitude structure* (needed for high FVE)
@@ -356,7 +368,9 @@ This is exactly what the paper predicts for an underpowered AV: the AR fits to t
 
 FVE is defined as:
 
-$$\text{FVE} = 1 - \frac{\text{Var}(h - \hat{h})}{\text{Var}(h)}$$
+$$
+\text{FVE} = 1 - \frac{\text{Var}(h - \hat{h})}{\text{Var}(h)}
+$$
 
 This is mathematically unbounded below: if reconstruction error variance exceeds activation variance, FVE < 0. A value of −1 means the reconstruction is twice as noisy as the raw mean prediction. This is **not a bug in the formula** — it is informative about training progress. A randomly initialized AR produces FVE well below zero; a trained AR should produce FVE > 0.
 
@@ -374,11 +388,11 @@ A naive AR maps a 384-dim sentence embedding directly to a 768-dim activation ve
 
 ### Numerical summary
 
-| Configuration | Approx. warm-start FVE |
-| --- | --- |
-| Raw 768-dim regression, no norm fix | −5 to −10 at step 0 |
-| Raw 768-dim regression, norm fix only | 0.02–0.08 |
-| PCA-20 regression, norm fix | **0.28–0.35** |
+| Configuration                         | Approx. warm-start FVE |
+| ------------------------------------- | ---------------------- |
+| Raw 768-dim regression, no norm fix   | −5 to −10 at step 0  |
+| Raw 768-dim regression, norm fix only | 0.02–0.08             |
+| PCA-20 regression, norm fix           | **0.28–0.35**   |
 
 ---
 
@@ -412,12 +426,12 @@ The activation verbalizer similarly formats a compact fingerprint of the activat
 
 ### Quality trade-off
 
-| Provider | FVE (expected) | Cost | Requires API key |
-| --- | --- | --- | --- |
-| `--ai anth` (Claude Sonnet 4.6) | −0.05 to +0.15 | ~$10–15 | Yes |
-| `--ai gem` (Gemini Flash) | −0.10 to +0.05 | Free tier | Yes |
-| `--ai deep` (DeepSeek Chat) | −0.08 to +0.08 | ~$1–3 | Yes |
-| `--ai local` (GPT-2) | **−0.074** (measured) | **Free** | **No** |
+| Provider                                          | FVE (expected)               | Cost           | Requires API key |
+| ------------------------------------------------- | ---------------------------- | -------------- | ---------------- |
+| `--ai anth` (Claude API)                        | −0.05 to +0.15              | ~$10–15       | Yes              |
+| `--ai gem` (Gemini Flash, `gemini-2.5-flash`) | **−0.095** (measured) | Free tier      | Yes              |
+| `--ai deep` (DeepSeek Chat)                     | −0.08 to +0.08              | ~$1–3         | Yes              |
+| `--ai local` (GPT-2)                            | Lower quality; for debugging | **Free** | **No**     |
 
 The quality gap is expected and fundamental: GPT-2 has no instruction-following training and no external world knowledge about what its own activations mean. It produces plausible-sounding continuations but cannot reliably identify semantic content from an activation fingerprint. Use `--ai local` for structural testing of the pipeline, not for scientific results.
 
@@ -435,19 +449,19 @@ python -m 07_analysis.evaluation_awareness
 
 The script feeds GPT-2 five evaluation-framed prompts (e.g., `"Rate this model's performance:"`) and five natural prompts, extracts layer-7 activations, verbalizes with the local NLA, and measures how often evaluation-related keywords (`evaluate`, `score`, `benchmark`, `accuracy`, …) appear in the explanations. Results are saved to `results/evaluation_awareness.json`.
 
-With the local verbalizer, the signal is weak (GPT-2 produces generic continuations). Re-running with `--ai anth` would provide a meaningful test.
+With the current Gemini proxy verbalizer, the signal is weak. Re-running with a stronger or different API provider would provide a useful comparison.
 
 ---
 
 ## 14. Limitations
 
-**Confabulation analysis incomplete**: The confabulation judge requires Claude API credits. All 40 calls failed at evaluation time; reported scores (0.333) are API-failure artifacts, not real measurements.
+**Confabulation analysis is small and judge-dependent**: The latest run evaluates 40 samples and shows a small thematic-over-factual gap. The exact magnitude should be treated as provisional until repeated with larger samples and stronger verbalizers.
 
 **API dependency**: The AV proxy requires API access and incurs latency (~0.3s/token) and cost. A true replication at scale would require fine-tuning the AV.
 
 **Lack of mechanistic grounding**: Like the paper, our NLAs are black boxes — we cannot determine which activation dimensions drove which explanation components.
 
-**Small evaluation set**: 100 samples for FVE evaluation; 50 for confabulation. Wider evaluations would increase confidence intervals.
+**Small evaluation set**: 100 samples for FVE evaluation; 40 for confabulation. Wider evaluations would increase confidence intervals.
 
 **Distribution shift**: WikiText-2 is encyclopedic text. Different domains (code, dialogue) likely produce different FVE values; we have not evaluated this.
 
