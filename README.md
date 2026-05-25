@@ -49,8 +49,21 @@ This repository replicates the NLA methodology on **GPT-2 small** (117M paramete
 The NLA consists of two components operating through a natural-language bottleneck:
 
 ```text
-h_l  ──→  Activation Verbalizer (AV)  ──→  z (text)  ──→  Activation Reconstructor (AR)  ──→  ĥ_l
-         "The model represents..."                          ĥ_l ≈ h_l  ←  minimize ‖h_l − ĥ_l‖²
+hidden activation h_l
+        |
+        v
+Activation Verbalizer (AV)
+        |
+        v
+natural-language explanation z
+        |
+        v
+Activation Reconstructor (AR)
+        |
+        v
+reconstructed activation h_hat_l
+
+Training objective: make h_hat_l close to h_l by minimizing ||h_l - h_hat_l||^2.
 ```
 
 ![NLA Architecture](figures/fig1_architecture.png)
