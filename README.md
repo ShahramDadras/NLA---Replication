@@ -186,7 +186,7 @@ python main.py --device cuda --ai gem
 
 ### Colab notebook
 
-The repository also includes [NLA_V2.ipynb](notebooks/NLA_V2.ipynb), a notebook version of the pipeline prepared for a Google Colab environment. It follows the same implementation path as the scripts, but is useful for running the replication interactively on a hosted GPU, inspecting intermediate outputs, and regenerating figures without setting up a local CUDA environment.
+The repository also includes [NLA_V2.ipynb](NLA_V2.ipynb), a notebook version of the pipeline prepared for a Google Colab environment. It follows the same implementation path as the scripts, but is useful for running the replication interactively on a hosted GPU, inspecting intermediate outputs, and regenerating figures without setting up a local CUDA environment.
 
 ### Step-by-step
 
