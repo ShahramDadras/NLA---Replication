@@ -18,10 +18,9 @@
 9. [Confabulation Analysis](#9-confabulation-analysis)
 10. [Discussion: Why Our FVE Differs From the Paper](#10-discussion-why-our-fve-differs-from-the-paper)
 11. [Engineering Notes: FVE Negative Values and the PCA Fix](#11-engineering-notes-fve-negative-values-and-the-pca-fix)
-12. [Running Without an API Key: --ai local](#12-running-without-an-api-key---ai-local)
-13. [Evaluation Awareness Experiment](#13-evaluation-awareness-experiment)
-14. [Limitations](#14-limitations)
-15. [References](#15-references)
+12. [Evaluation Awareness Experiment](#12-evaluation-awareness-experiment)
+13. [Limitations](#13-limitations)
+14. [References](#14-references)
 
 ---
 
@@ -88,7 +87,7 @@ FVE = 0 corresponds to always predicting the mean activation; FVE = 1 is perfect
 
 ### Training Procedure
 
-1. **Warm-start (SFT)**: Train AV and AR on (activation, Gemini-generated-summary) pairs. Produces FVE ≈ 0.30–0.35.
+1. **Warm-start (SFT)**: Train AV and AR on (activation, Gemini-generated-summary) pairs. This stabilizes the AR before RL-style updates, but the final held-out evaluation in this run remains below the mean-prediction FVE baseline.
 2. **RL update (AV)**: For each activation, sample *k* candidate explanations; assign reward $r = -\log\|h_l - \text{AR}(z)\|^2$; apply GRPO-style update.
 3. **Regression update (AR)**: One gradient step on MSE loss with the best-rewarded explanations.
 
@@ -248,7 +247,7 @@ When the setup is not tuned well enough, the NLA explanations become too noisy o
 
 ### Per-Dimension FVE
 
-Not all model dimensions are equally reconstructible. Only **24.0%** of GPT-2's 768 residual-stream dimensions show positive per-dimension FVE, the majority are negative, meaning the PCA-20 bottleneck discards information that cannot be recovered regardless of AR quality.
+Not all model dimensions are equally reconstructible in this setup. Only **24.0%** of GPT-2's 768 residual-stream dimensions show positive per-dimension FVE, while the majority are negative. This is consistent with a lossy PCA-20 bottleneck and weak activation-specific verbalizations, rather than proof that those dimensions are intrinsically unrecoverable.
 
 ![Per-dimension FVE](figures/fig4_per_dim_fve.png)
 
@@ -336,42 +335,52 @@ NLA explanations can contain verifiably false claims. We replicate the paper's c
 
 **Interpretation:** Thematic accuracy slightly exceeds factual accuracy, but the gap is small in this run. The distribution is highly skewed toward low scores: 33/40 samples received the lowest thematic score and 34/40 received the lowest factual score. This is consistent with the current explanations being short and often generic rather than richly grounded.
 
+### Possible mitigations
+
+The immediate problem is that the current verbalizer often produces overly concise, generic explanations. Two practical changes could improve this:
+
+**Reward shaping and length regularization.** During the RL training phase, the reward can penalize excessively short, repetitive, or template-like explanations while rewarding fluency, specificity, and reconstruction usefulness. This would discourage the Activation Verbalizer from compressing the activation signal into minimal generic text.
+
+**System prompt optimization.** The verbalizer prompt can explicitly require multi-sentence explanations that unpack semantic themes, likely token-level behavior, and uncertainty. The prompt should also discourage unsupported factual claims, so the model does not simply produce longer confabulations.
+
+These mitigations should be combined with factual-grounding checks. Length alone is not enough: a stronger verbalizer must be rewarded for producing explanations that are both richer and more faithful to the activation evidence.
+
 The code and judge prompt are implemented in [07_analysis/confabulation_analysis.py](07_analysis/confabulation_analysis.py). Wider evaluation sets and stronger verbalizers would be needed before treating the exact gap size as stable.
 
 ---
 
 ## 10. Discussion: Why Our FVE Differs From the Paper
 
-The paper reports 0.6–0.8 FVE on Claude Haiku/Opus models. Our FVE is **−0.095** with a cosine similarity of 0.750. The negative FVE is informative — it quantifies where the information loss occurs — and is attributable to four compounding factors:
+The paper reports substantially higher FVE on Claude-scale models. In this replication, the final local evaluation run gives **FVE = −0.095** with **cosine similarity = 0.750** on 100 evaluation samples. The negative FVE should be interpreted as a reconstruction-quality diagnostic, not as evidence that the pipeline is broken: after L2-normalization, the residual variance is about 9.5% larger than the activation variance, while the reconstructed vectors are still directionally aligned with the originals on average.
 
-**1. PCA-20 bottleneck (primary cause)**
-We project activations to 20 PCA components before AR training. In the latest evaluation, `eval_results.json` reports that **24.0%** of residual-stream dimensions have positive per-dimension FVE. The remaining dimensions are not reconstructed above the mean-prediction baseline, so a large share of the activation space remains poorly recovered. Our −0.095 is 0.095 below the mean baseline — the AR is adding a small amount of noise on top of an already-lossy projection.
+The gap to the paper is likely due to several compounding factors:
 
-The cosine similarity of 0.750 tells a different story: the *direction* of the reconstructed vector is about 75% aligned with the ground truth. The AR has learned something meaningful about activation geometry; it just cannot recover enough variance for positive FVE.
+**1. Verbalizer implementation gap**
+The paper trains an Activation Verbalizer that can condition directly on model activations. This replication uses an API/proxy verbalizer, with the reported run using Gemini. Gemini receives the source context plus a text-formatted activation summary, not a learned activation token or injected embedding. It also cannot be updated directly by the RL reward. This is the largest architectural mismatch with the paper and is a plausible reason the natural-language bottleneck carries limited activation-specific information.
 
-**2. AV implementation gap**
-The paper fine-tunes the AV as a copy of the target LLM, injecting activations directly as token embeddings. Our proxy verbalizer (GPT-2 LM head in local mode) sees only a compact numerical fingerprint of the activation (top-8 dimensions, norm, mean) — not the raw vector. It has no instruction tuning and no world knowledge about what GPT-2's internals mean. The resulting descriptions are generic and carry little activation-specific information.
+**2. PCA-20 bottleneck**
+The AR predicts 20 PCA coordinates and then maps them back to GPT-2's 768-dimensional residual stream. In the saved checkpoints, these 20 PCA components explain about **46.8%** of the activation variance. This makes the regression problem much easier, but it also constrains how much information can be reconstructed. In the final evaluation, only **24.0%** of residual-stream dimensions have positive per-dimension FVE, so most dimensions are not reconstructed above the mean-prediction baseline.
 
-**3. Model scale**
-GPT-2 (d=768, 12 layers) packs information more densely per dimension than frontier models. Small-model activations are harder to verbalize precisely because each dimension encodes a mix of syntactic, semantic, and positional signals with less separation than in larger models.
+**3. Target model and scale**
+GPT-2 small is much smaller than the models used in the paper. Its residual stream may mix syntactic, semantic, and positional information more tightly than larger models, making a short text explanation less able to preserve the information needed for exact reconstruction. This is an interpretation rather than a directly measured ablation in this repo.
 
 **4. Training scale**
-200 RL steps vs. thousands in the paper. The paper observes FVE growing ~linearly in log(steps). Our result is consistent with an early-training snapshot.
+This run uses 200 RL-style training steps and a small evaluation set. The training log shows noisy but generally improving in-training FVE estimates, while the held-out final FVE remains negative. That means the training loop is learning some signal, but the current setup does not yet generalize strongly enough to match paper-level reconstruction quality.
 
 ### The key finding: cosine similarity vs. FVE divergence
 
-The gap between cosine similarity (0.750) and FVE (−0.095) is itself a measurable and interesting result. It means:
+The gap between cosine similarity (0.750) and FVE (−0.095) is itself a useful diagnostic. It suggests:
 
-- The NLA has learned the *orientation* of activations (useful for steering)
-- But not their *magnitude structure* (needed for high FVE)
+- The reconstructions preserve some average activation direction.
+- They do not preserve enough variance across the full residual stream to beat the mean-prediction baseline under FVE.
 
-This is exactly what the paper predicts for an underpowered AV: the AR fits to the large-variance PCA directions but fails on the rest. It is a clean, honest replication of the paper's key finding at small scale.
+So the honest conclusion is narrower than "successful replication": this project replicates the NLA pipeline and several analysis protocols, but the small-scale Gemini/PCA setup does **not** reproduce the paper's high-FVE result. The result is still informative because it shows where the approximation loses information: the proxy verbalizer, the 20-dimensional PCA bottleneck, and limited training scale all plausibly contribute.
 
 ### Summary Comparison
 
 ![Summary comparison](figures/fig9_summary_comparison.png)
 
-*Figure 9: FVE comparison across methods and ablations. The gap to the paper's results is primarily attributable to AV implementation (see text), not to fundamental limitations of the methodology.*
+*Figure 9: FVE comparison across methods and ablations. The gap to the paper's results is best interpreted as an implementation-scale gap: the proxy verbalizer, PCA bottleneck, and limited training budget are all plausible contributors.*
 
 ---
 
@@ -385,74 +394,33 @@ $$
 \text{FVE} = 1 - \frac{\text{Var}(h - \hat{h})}{\text{Var}(h)}
 $$
 
-This is mathematically unbounded below: if reconstruction error variance exceeds activation variance, FVE < 0. A value of −1 means the reconstruction is twice as noisy as the raw mean prediction. This is **not a bug in the formula** — it is informative about training progress. A randomly initialized AR produces FVE well below zero; a trained AR should produce FVE > 0.
+This is mathematically unbounded below: if reconstruction error variance exceeds activation variance, FVE < 0. A value of −1 means the reconstruction is twice as noisy as the raw mean prediction. This is **not a bug in the formula ** , it is informative about training progress. A randomly initialized AR produces FVE well below zero; a trained AR should produce FVE > 0.
 
 Two engineering decisions in this project can cause FVE to start deeply negative unless handled carefully:
 
-**Problem 1 — Scale mismatch with normalized activations.**
+**Problem 1 - Scale mismatch with normalized activations.**
 `NORMALIZE_ACTIVATIONS = True` stores every activation as a unit-L2-norm vector (`‖h‖ = 1`). The AR's MLP output is not norm-constrained, so early in training it may produce vectors of scale 2–5. This inflates `Var(h − ĥ)` far above `Var(h)`, pushing FVE to −10 or worse at step 0.
 
 *Fix applied*: Both `h` and `ĥ` are L2-normalized before computing FVE in `compute_fve.py` and `activation_reconstructor.py`. Since both vectors are on the unit sphere, direction accuracy is what matters; scale mismatch no longer contaminates the metric.
 
-**Problem 2 — Regression dimensionality.**
-A naive AR maps a 384-dim sentence embedding directly to a 768-dim activation vector — a severely underdetermined regression with 768 independent noisy targets. Even after warm-start, such a model can barely surpass the mean-prediction baseline, and the residuals are large relative to the activation variance.
+**Problem 2 - Regression dimensionality.**
+A naive AR maps a 384-dim sentence embedding directly to a 768-dim activation vector a difficult regression with 768 noisy targets. Even after warm-start, such a model can barely surpass the mean-prediction baseline, and the residuals are large relative to the activation variance.
 
-*Fix applied (strategic)*: PCA is fitted on the training activations. The top 20 principal components typically capture >90% of activation variance. The MLP is trained to predict only these 20 PCA coordinates instead of all 768 dimensions. At inference, `pca.inverse_transform()` recovers the 768-dim vector. This reduces the regression problem from 384→768 to 384→20 — approximately 38× fewer targets — which is the primary reason warm-start FVE rises from ~0.05 to ~0.30+.
+*Fix applied (strategic)*: PCA is fitted on the training activations. In the saved checkpoints, the top 20 principal components capture about **46.8%** of activation variance. The MLP is trained to predict only these 20 PCA coordinates instead of all 768 dimensions. At inference, `pca.inverse_transform()` maps the prediction back into the 768-dim space. This reduces the regression problem from 384→768 to 384→20  approximately 38× fewer targets  but it also makes the PCA projection a real information bottleneck.
 
 ### Numerical summary
 
-| Configuration                         | Approx. warm-start FVE |
-| ------------------------------------- | ---------------------- |
-| Raw 768-dim regression, no norm fix   | −5 to −10 at step 0  |
-| Raw 768-dim regression, norm fix only | 0.02–0.08             |
-| PCA-20 regression, norm fix           | **0.28–0.35**   |
+| Configuration                         | Expected effect                                                     |
+| ------------------------------------- | ------------------------------------------------------------------- |
+| Raw 768-dim regression, no norm fix   | Can produce deeply negative FVE because of scale mismatch           |
+| Raw 768-dim regression, norm fix only | Removes scale mismatch but leaves a difficult 768-target regression |
+| PCA-20 regression, norm fix           | Easier regression, but still lossy in this run                      |
 
 ---
 
-## 12. Running Without an API Key: --ai local
+## 12. Evaluation Awareness Experiment
 
-All API providers (Claude, Gemini, DeepSeek, OpenAI) require an account and incur cost. For pipeline debugging, offline development, or zero-cost experimentation, the `--ai local` flag runs the entire pipeline using **GPT-2's own language model head** as the verbalizer — no network calls, no API key required.
-
-```bash
-python main.py --ai local
-```
-
-Or step by step:
-
-```bash
-python main.py --ai local --step 1   # extract activations (no API needed)
-python main.py --ai local --step 2   # generate warm-start summaries via GPT-2
-python main.py --ai local --step 3   # train AR warm-start
-python main.py --ai local --step 4   # RL training loop
-```
-
-### How it works
-
-Instead of calling an external LLM, the local verbalizer:
-
-1. Formats a short instruction prompt: `"Summarize the following text in one sentence:\n{text}\nSummary:"`
-2. Passes it to a frozen `GPT2LMHeadModel` (loaded once at startup)
-3. Generates up to 60 new tokens with `temperature=0.7`, `top_p=0.9`, `repetition_penalty=1.3`
-4. Returns the decoded continuation as the "summary" or "verbalization"
-
-The activation verbalizer similarly formats a compact fingerprint of the activation (top-8 active dimensions, norm, mean) and lets GPT-2 continue the prompt.
-
-### Quality trade-off
-
-| Provider                                          | FVE (expected)               | Cost           | Requires API key |
-| ------------------------------------------------- | ---------------------------- | -------------- | ---------------- |
-| `--ai anth` (Claude API)                        | −0.05 to +0.15              | ~$10–15       | Yes              |
-| `--ai gem` (Gemini Flash, `gemini-2.5-flash`) | **−0.095** (measured) | Free tier      | Yes              |
-| `--ai deep` (DeepSeek Chat)                     | −0.08 to +0.08              | ~$1–3         | Yes              |
-| `--ai local` (GPT-2)                            | Lower quality; for debugging | **Free** | **No**     |
-
-The quality gap is expected and fundamental: GPT-2 has no instruction-following training and no external world knowledge about what its own activations mean. It produces plausible-sounding continuations but cannot reliably identify semantic content from an activation fingerprint. Use `--ai local` for structural testing of the pipeline, not for scientific results.
-
----
-
-## 13. Evaluation Awareness Experiment
-
-The paper reports that NLA explanations reflect a model's internal context-type awareness — evaluation-framed prompts produce different activation patterns than natural text, even before any evaluation-specific token is generated.
+The paper reports that NLA explanations reflect a model's internal context-type awareness evaluation-framed prompts produce different activation patterns than natural text, even before any evaluation-specific token is generated.
 
 We implement a small-scale test of this in [07_analysis/evaluation_awareness.py](07_analysis/evaluation_awareness.py):
 
@@ -466,7 +434,7 @@ With the current Gemini proxy verbalizer, the signal is weak. Re-running with a 
 
 ---
 
-## 14. Limitations
+## 13. Limitations
 
 **Confabulation analysis is small and judge-dependent**: The latest run evaluates 40 samples and shows a small thematic-over-factual gap. The exact magnitude should be treated as provisional until repeated with larger samples and stronger verbalizers.
 
@@ -480,7 +448,7 @@ With the current Gemini proxy verbalizer, the signal is weak. Re-running with a 
 
 ---
 
-## 15. References
+## 14. References
 
 1. Fraser-Taliente, K. et al. *Natural Language Autoencoders Produce Unsupervised Explanations of LLM Activations*. Anthropic, May 2026. [transformer-circuits.pub/2026/nla](https://transformer-circuits.pub/2026/nla/index.html)
 2. Lindsey, J. et al. *Biology of a Large Language Model*. Anthropic, 2025.

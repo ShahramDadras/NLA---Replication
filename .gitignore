@@ -26,6 +26,7 @@ results/**
 !results/
 !results/**/
 !results/**/*.py
+results/GPT-2/
 *.npy
 *.npz
 *.pt
