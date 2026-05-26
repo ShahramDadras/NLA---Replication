@@ -337,9 +337,7 @@ We test the paper's Section 3.2 finding: that NLA explanations reflect the model
 
 ## 9. Confabulation Analysis
 
-NLA explanations can contain verifiably false claims. We replicate the paper's confabulation characterization (Section 5.2) on 40 random examples, using an LLM judge to rate both thematic and factual accuracy.
-
-![Confabulation analysis (embedded in behavioral properties figure)](figures/fig5_behavioral_properties.png)
+NLA explanations can contain verifiably false claims. We replicate the paper's confabulation characterization (Section 5.2) on 40 random examples, using an LLM judge to rate both thematic and factual accuracy. The confabulation summary is shown in the middle panel of Figure 6 above.
 
 **Key findings** (consistent with paper):
 
@@ -456,7 +454,7 @@ With the current Gemini proxy verbalizer, the signal is weak. Re-running with a 
 
 **API dependency**: The AV proxy requires API access and incurs latency (~0.3s/token) and cost. A true replication at scale would require fine-tuning the AV.
 
-**Lack of mechanistic grounding**: Like the paper, our NLAs are black boxes — we cannot determine which activation dimensions drove which explanation components.
+**Lack of mechanistic grounding**: Like the paper, our NLAs are black boxes, we cannot determine which activation dimensions drove which explanation components.
 
 **Small evaluation set**: 100 samples for FVE evaluation; 40 for confabulation. Wider evaluations would increase confidence intervals.
 
