@@ -6,14 +6,13 @@ Generates all figures for the README, replicating the visual style of the paper.
 Figures produced:
   Fig 1: NLA Architecture Diagram (SVG-style)
   Fig 2: FVE over training steps (line plot)
-  Fig 3: Prediction task accuracy improvement over training (multi-line)
+  Fig 3: Prediction task accuracy summary
   Fig 4: Per-dimension FVE distribution (histogram)
-  Fig 5: Steganography score distribution (violin/box plot)
-  Fig 6: Confabulation: thematic vs factual accuracy (bar chart)
-  Fig 7: Language switching — mention frequency over token positions (line + shading)
-  Fig 8: Reward distribution during GRPO training (box plot per step)
-  Fig 9: FVE at different layers (bar chart)
-  Fig 10: Cross-token claim consistency (heatmap-style)
+  Fig 5: Behavioral properties: steganography, confabulation, length
+  Fig 6: Language switching — mention frequency over token positions
+  Fig 7: Reward distribution during GRPO training
+  Fig 8: Layer sensitivity
+  Fig 9: Summary FVE comparison
 
 All figures saved to figures/ directory as high-DPI PNG.
 """
@@ -91,13 +90,13 @@ def plot_nla_architecture():
                     zorder=5)
 
     # Input
-    box(0.2, 1.25, 1.8, 1.5, COLORS["neutral"], "Residual Stream", "h_l ∈ ℝ^768")
+    box(0.2, 1.25, 1.8, 1.5, COLORS["neutral"], "Residual Stream", "h_l in R^768")
 
     arrow(2.0, 2.8)
     ax.text(2.4, 2.35, "inject as\ntoken emb.", ha="center", fontsize=7, color="#666")
 
     # AV
-    box(2.8, 1.25, 2.4, 1.5, COLORS["primary"], "Activation\nVerbalizer (AV)", "Claude API")
+    box(2.8, 1.25, 2.4, 1.5, COLORS["primary"], "Activation\nVerbalizer (AV)", "Gemini proxy")
 
     arrow(5.2, 6.0)
     ax.text(5.6, 2.35, "z ~ AV(·|h_l)", ha="center", fontsize=7.5, color="#333",
@@ -121,7 +120,7 @@ def plot_nla_architecture():
     # Labels
     ax.text(6.0, 3.4, "Natural Language Autoencoder", ha="center", fontsize=14,
             fontweight="bold", color="#222")
-    ax.text(6.0, 0.5, "Objective: min  𝔼[‖h_l − AR(AV(h_l))‖²]   →   FVE = 1 − Var(residual)/Var(h_l)",
+    ax.text(6.0, 0.5, "Objective: minimize E[||h_l - AR(AV(h_l))||^2] -> FVE = 1 - Var(residual)/Var(h_l)",
             ha="center", fontsize=9, color="#444", style="italic")
 
     return savefig(fig, "fig1_architecture")
@@ -140,11 +139,11 @@ def plot_fve_over_training():
         steps = [r["step"] for r in records]
         fves  = [r["fve_estimate"] for r in records]
     else:
-        # Synthetic curve: FVE grows ~linearly in log(steps), per paper
+        # Fallback curve for plot debugging when the training log is absent.
         steps = list(range(0, 200, 5))
-        fves  = [0.15 + 0.20 * np.log1p(s) / np.log1p(200) + 0.01 * np.random.randn()
+        fves  = [-0.20 + 0.15 * np.log1p(s) / np.log1p(200) + 0.015 * np.random.randn()
                  for s in steps]
-        fves  = np.clip(fves, 0, 0.95).tolist()
+        fves  = np.clip(fves, -0.5, 0.2).tolist()
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5))
 
@@ -161,8 +160,6 @@ def plot_fve_over_training():
 
     ax1.axhline(y=0.0, color=COLORS["neutral"], linestyle="--", linewidth=1.2,
                 label="Mean baseline (FVE=0)", alpha=0.8)
-    ax1.axhline(y=0.35, color=COLORS["accent"], linestyle=":", linewidth=1.5,
-                label="Warm-start (SFT only, ~0.35)", alpha=0.8)
     ax1.fill_between(steps, np.array(fves) - 0.02, np.array(fves) + 0.02,
                      color=COLORS["primary"], alpha=0.15)
 
@@ -170,10 +167,10 @@ def plot_fve_over_training():
     ax1.set_ylabel("Fraction of Variance Explained (FVE)")
     ax1.set_title("FVE During NLA Training")
     ax1.legend(loc="upper right")
-    ax1.set_ylim(-0.05, 1.0)
+    ax1.set_ylim(-0.5, 0.3)
     ax1.set_xlim(0, max(steps))
 
-    # Right: FVE vs log(steps) — paper says "grows linearly in log(steps)"
+    # Right: diagnostic fit against log(steps), matching the paper's analysis style.
     log_steps = [np.log1p(s) for s in steps[1:]]
     fves_tail  = fves[1:]
     ax2.scatter(log_steps, fves_tail, color=COLORS["primary"], s=15, alpha=0.6)
@@ -203,7 +200,7 @@ def plot_prediction_task_accuracy():
     checkpoints = ["warmstart", "step_50", "step_100", "step_150", "final"]
     checkpoint_steps = [0, 50, 100, 150, 200]
 
-    # Try to load real data; otherwise use plausible synthetic data
+    # Try to load real data; otherwise use low fallback values for plot debugging.
     task_accs = {}
     for task in tasks:
         task_accs[task] = []
@@ -216,7 +213,7 @@ def plot_prediction_task_accuracy():
                 if acc is not None:
                     task_accs[task].append(acc)
                     continue
-            # Synthetic: improvement + random noise
+            # Fallback values are intentionally modest; they are not results.
             base = {"domain_classification": 0.42, "topic_extraction": 0.28,
                     "sentiment_detection": 0.55, "gender_inference": 0.60,
                     "next_token_prediction": 0.18}[task]
@@ -236,7 +233,7 @@ def plot_prediction_task_accuracy():
 
     ax.set_xlabel("Training Step")
     ax.set_ylabel("Prediction Accuracy")
-    ax.set_title("Prediction Task Accuracy Over Training\n(all tasks improve, consistent with paper)")
+    ax.set_title("Prediction Task Accuracy Over Training\n(fallback values used only if result files are absent)")
     ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", borderaxespad=0)
     ax.set_xlim(-5, 205)
     ax.set_ylim(0, 1.0)
@@ -256,7 +253,7 @@ def plot_per_dim_fve():
         per_dim = None
 
     if per_dim is None:
-        # Synthetic: most dims 0.1-0.6, long left tail
+        # Fallback distribution for plot debugging when evaluation output is absent.
         per_dim = np.concatenate([
             np.random.beta(2, 3, size=600) * 0.8,
             np.random.uniform(-0.3, 0.0, size=100),
@@ -328,7 +325,7 @@ def plot_behavioral_properties():
 
     # Left: Steganography
     ax = axes[0]
-    # Synthetic per-sample distribution
+    # Fallback per-sample distribution when only summary statistics are available.
     steg_samples = np.random.normal(steg_mean, steg_std, 200).clip(0, 0.3)
     ax.hist(steg_samples, bins=30, color=COLORS["primary"], alpha=0.8, edgecolor="white")
     ax.axvline(steg_mean, color=COLORS["highlight"], linestyle="--", linewidth=2,
@@ -349,7 +346,7 @@ def plot_behavioral_properties():
                   width=0.4, edgecolor="white", linewidth=1.5)
     ax.set_ylim(0, 1.0)
     ax.set_ylabel("Normalized Score (0–1)")
-    ax.set_title("Confabulation Pattern\n(thematic > factual, per paper)")
+    ax.set_title("Confabulation Pattern\n(thematic vs factual accuracy)")
     for bar, val in zip(bars, values):
         ax.text(bar.get_x() + bar.get_width()/2, val + 0.02,
                 f"{val:.2f}", ha="center", va="bottom", fontweight="bold")
@@ -380,7 +377,7 @@ def plot_language_switching():
     """Line plots of language mention frequency over token positions."""
     lang_path = RESULTS_DIR / "case_study_language_switching.json"
 
-    # Synthetic data matching paper's Figure 2 style
+    # Fallback data used when the language-switching result file is absent.
     n_tokens = 80
     x = np.linspace(0, 1, n_tokens)
 
@@ -457,7 +454,7 @@ def plot_reward_distribution():
     else:
         steps_data = None
 
-    # Synthetic: rewards improve and variance narrows over training
+    # Fallback reward distributions used when only summary logs are available.
     fig, ax = plt.subplots(figsize=(10, 5))
 
     checkpoints = [0, 25, 50, 100, 150, 200]
@@ -487,7 +484,7 @@ def plot_reward_distribution():
 # ── Fig 8: Layer sensitivity ───────────────────────────────────────────────────
 def plot_layer_sensitivity():
     """FVE at different GPT-2 layers."""
-    # Synthetic: middle-to-late layers perform best, per paper guidance
+    # Fallback values reflecting the expected middle-to-late layer pattern.
     layers = list(range(12))
     # Early layers: low FVE; middle: peak; late: slight drop (too task-specific)
     base_fves = [
@@ -534,7 +531,7 @@ def plot_summary_comparison():
         "NLA (this work)\nfull pipeline",
         "Paper (Opus 4.6)\n[frontier]",
     ]
-    fves = [-0.00, -0.42, 0.18, 0.34, 0.43, 0.72]
+    fves = [0.00, -0.42, -0.20, -0.12, -0.095, 0.72]
     colors = [
         COLORS["neutral"], COLORS["highlight"],
         "#ccc", COLORS["accent"],

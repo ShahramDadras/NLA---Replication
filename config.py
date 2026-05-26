@@ -69,9 +69,10 @@ AR_NUM_LAYERS = 3
 
 # PCA dimensionality reduction applied to activations before AR training.
 # The MLP predicts PCA coordinates (20-dim) instead of raw activations (768-dim).
-# Rationale: 768→20 makes the regression 38× easier; 20 PCA components typically
-# capture >90% of activation variance. The inverse transform recovers 768-dim
-# for FVE computation and reward calculation.
+# Rationale: 768→20 makes the regression 38× easier. In the saved run, 20
+# components capture about 46.8% of activation variance, so this is also an
+# explicit information bottleneck. The inverse transform recovers 768-dim for
+# FVE computation and reward calculation.
 PCA_COMPONENTS = 20
 
 # ── API Keys ──────────────────────────────────────────────────────────────────
@@ -103,11 +104,8 @@ PROVIDER_MODELS = {
     "gpt":   "gpt-4o-mini",            # OpenAI; moderate cost
     # ── Local provider (no API, no cost) ──────────────────────────────────────
     # Uses GPT-2's own LM head to verbalize its activations locally.
-    # Quality is lower than frontier LLMs (GPT-2 cannot introspect itself
-    # the way a larger model can), but the full pipeline runs with zero API
-    # calls, making it ideal for Colab free tier / offline debugging.
-    # FVE gap vs paper is larger (~0.05-0.15 vs 0.60-0.80) because the
-    # verbalizer has no external world knowledge to describe what it sees.
+    # Quality is lower than API verbalizers, but the full pipeline runs with
+    # zero API calls, making it useful for Colab free tier / offline debugging.
     "local": "gpt2",
 }
 

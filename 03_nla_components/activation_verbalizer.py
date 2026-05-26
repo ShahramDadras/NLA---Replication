@@ -23,11 +23,9 @@ Providers (select with --ai flag):
   local — GPT-2 LM head, fully offline, zero API cost.
           Prompts GPT-2 with a structured summary of its own activation
           (top-N dimension indices + values) and lets it generate a
-          natural-language continuation. Quality is lower than frontier
-          LLMs — GPT-2 has no external world knowledge to describe what
-          its own internals mean — but the full NLA pipeline runs without
-          any network calls, making it ideal for Colab free tier or
-          offline debugging. Expected FVE ~0.05–0.15 vs 0.60–0.80 in paper.
+          natural-language continuation. Quality is lower than API
+          verbalizers, but the full NLA pipeline runs without network calls,
+          making it useful for Colab free tier or offline debugging.
 """
 
 import sys
@@ -103,7 +101,7 @@ def format_activation_for_prompt(
 
 class ActivationVerbalizer:
     """
-    Wraps the Claude API to act as the Activation Verbalizer.
+    Wraps the selected provider to act as the Activation Verbalizer.
 
     Methods
     -------
@@ -176,8 +174,8 @@ class ActivationVerbalizer:
         # continues the prompt as a text completion.
         # Limitation: GPT-2 generates plausible-sounding continuations but has
         # no ground-truth knowledge of what each dimension means, so the
-        # descriptions are weaker than a frontier LLM's. The FVE is lower as a
-        # result, but the pipeline structure is identical to the API variants.
+        # descriptions are weaker than API verbalizer outputs. The pipeline
+        # structure is otherwise identical to the API variants.
         if self.provider == "local":
             import torch
             # Parse context tokens out of the structured prompt string

@@ -11,16 +11,14 @@ where:
 
 FVE=0 → predicting the mean (baseline)
 FVE=1 → perfect reconstruction
-Paper reports 0.6–0.8 on Claude models (frontier scale, RL-trained).
-We expect 0.2–0.5 given: (a) API proxy AV, (b) small GPT-2 target,
-(c) limited training steps.
+The paper reports much higher values on Claude-scale models. This small
+GPT-2/Gemini/PCA replication is expected to be substantially lower.
 
 This module provides:
   - compute_fve()              single scalar FVE
   - compute_fve_per_dim()      per-dimension FVE (diagnostic)
-  - compute_fve_vs_baseline()  compare NLA FVE vs mean-prediction baseline
   - layerwise_fve()            FVE across multiple layers
-  - fve_distribution()         FVE distribution over samples
+  - evaluate_reconstruction()  summary metrics and baseline comparison
 """
 
 import sys
@@ -129,8 +127,8 @@ def evaluate_reconstruction(
     Comprehensive reconstruction evaluation.
 
     Returns dict with:
-      fve, mse, cosine_similarity, per_dim_fve_stats,
-      baseline_fve (mean prediction), random_baseline_fve
+      fve, mse, cosine_similarity, per-dimension FVE summary, and
+      baseline_fve (mean prediction)
     """
     # FVE
     fve = compute_fve(originals, reconstructed)
