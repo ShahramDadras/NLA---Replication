@@ -26,6 +26,7 @@ results/**
 !results/
 !results/**/
 !results/**/*.py
+!results/**/*.json
 results/GPT-2/
 *.npy
 *.npz
@@ -35,6 +36,7 @@ results/GPT-2/
 *.joblib
 *.jsonl
 *.log
+!results/**/*.jsonl
 
 # IDEs and editors
 .vscode/

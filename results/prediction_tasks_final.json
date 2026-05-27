@@ -1,0 +1,11 @@
+{
+  "checkpoint": "final",
+  "tasks": {
+    "next_token_prediction": 0.0,
+    "domain_classification": 0.05555555555555555,
+    "topic_extraction": 0.04,
+    "sentiment_detection": 0.0,
+    "gender_inference": 0.0
+  },
+  "judge": "gem"
+}

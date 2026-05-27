@@ -1,0 +1,13 @@
+{
+  "label": "NLA (this work)",
+  "n_samples": 100,
+  "fve": -0.09495139122009277,
+  "mse": 0.0005770179559476674,
+  "cosine_similarity": 0.7502374053001404,
+  "baseline_fve": 0.0,
+  "per_dim_fve_mean": -0.07003505527973175,
+  "per_dim_fve_std": 0.2394695281982422,
+  "per_dim_fve_positive_fraction": 0.23958333333333334,
+  "per_sample_fve_mean": -0.07359522581100464,
+  "per_sample_fve_std": 0.5500877499580383
+}

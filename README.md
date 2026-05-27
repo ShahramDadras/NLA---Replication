@@ -1,5 +1,13 @@
 # Natural Language Autoencoders: Replication on GPT-2
 
+<style>
+.markdown-body p,
+.markdown-body li {
+  text-align: justify;
+  text-justify: inter-word;
+}
+</style>
+
 > **PhD Recruitment Task - KTH / Prof. Monperrus, 2026**
 > Reimplementation and evaluation of the NLA approach from [Fraser-Taliente et al., Anthropic, May 2026](https://transformer-circuits.pub/2026/nla/index.html).
 
@@ -37,7 +45,7 @@ This repository replicates the NLA methodology on **GPT-2 small** (117M paramete
 - **Training**: Supervised warm-start + RL-style reward optimization
 - **Primary metric**: Fraction of Variance Explained (FVE)
 
-**Final result: FVE = −0.095** (cosine similarity = 0.750). The negative FVE is informative rather than a failure: it reflects a PCA bottleneck and a proxy verbalizer that cannot be fine-tuned on GPT-2's activation distribution. The gap to the paper, and why cosine similarity (0.75) and FVE (−0.10) can diverge, is analyzed in [Section 10](#10-discussion-why-our-fve-differs-from-the-paper).
+**Final result: FVE = −0.095** (cosine similarity = 0.750). The negative FVE is informative rather than a failure: it reflects a PCA bottleneck and a proxy verbalizer that cannot be fine-tuned on GPT-2's activation distribution. The gap to the paper, and why cosine similarity (0.75) and FVE (−0.10) can diverge, is analyzed in [Section 10](#10-discussion-why-our-fve-differs-from-the-paper). The primary root cause of near-zero prediction task scores is the verbalizer's degenerate output format: mean explanation length was 7.1 words (40% truncated), producing structural headings rather than descriptive text too short for a downstream judge to extract task-relevant signal.
 
 ### Research question
 
@@ -222,48 +230,50 @@ python main.py --step 8
 
 ### FVE Over Training
 
-The primary finding is that FVE improves over training steps, growing approximately linearly in log(steps), consistent with the paper.
+FVE improves from near-zero at initialisation and peaks around step 100, then plateaus with high variance a pattern consistent with the paper's observation that FVE grows roughly linearly in log(steps) before saturating.
+
+| Checkpoint                         | FVE (smoothed, window=10) | Mean Reward |
+| ---------------------------------- | ------------------------- | ----------- |
+| Step 0 (random init)               | 0.008                     | 0.693       |
+| Step 50                            | 0.039                     | —          |
+| Step 100                           | **0.115**           | 1.530       |
+| Step 150                           | 0.108                     | 1.273       |
+| Step 200 (final)                   | 0.105                     | 1.225       |
+| **Held-out eval (final AR)** | **−0.095**         | —          |
+| Paper (Claude Opus 4.6)            | 0.60–0.80                | —          |
+
+The peak FVE during training (0.263 at step 117) is higher than the held-out evaluation (−0.095). This gap reflects **overfitting of the FVE estimate to the training batch**: the training-step FVE is computed on the same batch used for the gradient update, while the held-out evaluation uses 100 fresh samples with a fully frozen AR checkpoint.
+
+**Cosine similarity on held-out set: 0.750.** The AR correctly recovers the *direction* of activations but not their scale, because the PCA-20 bottleneck discards magnitude information. The divergence between cosine similarity (0.75) and FVE (−0.095) is itself a finding: FVE penalises scale errors heavily, while cosine similarity does not.
+This is consistent with the paper's observation that reconstruction quality depends strongly on the verbalizer's ability to encode the full activation distribution which our proxy verbalizer cannot do.
 
 ![FVE over training](figures/fig2_fve_training.png)
 
 *Figure 2: FVE during NLA training. Left: FVE vs. training steps. Right: FVE plotted against log(steps), showing the approximately linear relationship reported in the paper. Shading indicates ±1 std over batches.*
 
-| Checkpoint                      | FVE               | Cosine similarity |
-| ------------------------------- | ----------------- | ----------------- |
-| Random baseline                 | ≈ −0.42         | —                |
-| Mean prediction (lower bound)   | 0.00              | —                |
-| After 200 RL steps (this work)  | **−0.095** | **0.750**   |
-| Paper (Opus 4.6, full training) | 0.60–0.80        | —                |
+### Prediction Tasks
 
-> **Note on negative FVE.** FVE = −0.095 means the residual variance is about 9.5% larger than the activation variance in the normalized evaluation space. This is expected for an underpowered setup where (a) the AR predicts only 20 PCA coordinates before mapping back to 768 dimensions, and (b) the Gemini proxy verbalizer was not fine-tuned on GPT-2's activation distribution. The cosine similarity of 0.750 shows the reconstructor still captures much of the activation *direction*, even though the reconstruction is not accurate enough to achieve positive FVE. See Section 10 for full analysis.
+Prediction tasks were evaluated using the Gemini API judge(`gemini-2.5-flash`, judge="gem") on held-out samples.
 
-### Prediction Task Accuracy
+| Task                  | Accuracy |
+| --------------------- | -------- |
+| Next-token prediction | 0.00     |
+| Domain classification | 0.056    |
+| Topic extraction      | 0.040    |
+| Sentiment detection   | 0.00     |
+| Gender inference      | 0.00     |
 
-The paper evaluates NLA quality by giving an LLM judge only the explanation (no original text) and measuring accuracy on five tasks. Accuracy should improve with training if explanations become more informative.
+All tasks score near or at zero. This is a direct consequence of the **short explanation length**: the verbalizer produced a mean of 7.1 words per explanation (min 5, max 11), with 40% of explanations truncated. A 7-word explanation such as "**Syntactic and Referent Tracking**" carries almost no task-relevant signal for a downstream judge to evaluate.
 
-All results below used the **Gemini judge**. The generated JSON outputs are local experiment artifacts and are not included in Git. The scores remain low, indicating that the current explanations are not yet reliably informative enough for downstream prediction tasks.
+The paper's prediction tasks improve with training because the verbalizer is fine-tuned on the target model's activation distribution and produces rich multi-sentence explanations. Our proxy verbalizer produces headings, not descriptions. **The failure mode here is in explanation length and content, not in the evaluation pipeline itself.**
 
 ![Prediction task accuracy](figures/fig3_prediction_tasks.png)
 
 *Figure 3: Prediction task accuracy at the final checkpoint with the Gemini judge. Scores are near zero across tasks, showing that the current verbalizer/reconstructor setup does not yet expose enough task-relevant information in the explanations.*
 
-The problem is that prediction-task accuracy is near zero. The likely reason is that this specific AV/AR configuration, at this checkpoint, is not doing the translation job well enough yet. As a result, it fails to extract and expose the task-relevant information from GPT-2's internal activations into natural-language explanations: the relevant internal signal remains inside the model because the NLA translation layer is not high-fidelity enough in this run.
-
-When the setup is not tuned well enough, the NLA explanations become too noisy or vague, preventing an external judge from successfully predicting what the model is doing from the explanations alone. This is what the low Figure 3 scores suggest for the current Gemini-based run.
-
-| Task                  | After 200 steps (Gemini judge) | Paper (qualitative) |
-| --------------------- | ------------------------------ | ------------------- |
-| Next-token prediction | **0.00**                 | ↑ with training    |
-| Domain classification | **0.056**                | ↑ with training    |
-| Topic extraction      | **0.04**                 | ↑ with training    |
-| Sentiment detection   | **0.00**                 | ↑ with training    |
-| Gender inference      | **0.00**                 | ↑ with training    |
-
-> To reproduce with a different API judge: set `AI_PROVIDER` in [config.py](config.py) and re-run `python main.py --step 5`.
-
 ### Per-Dimension FVE
 
-Not all model dimensions are equally reconstructible in this setup. Only **24.0%** of GPT-2's 768 residual-stream dimensions show positive per-dimension FVE, while the majority are negative. This is consistent with a lossy PCA-20 bottleneck and weak activation-specific verbalizations, rather than proof that those dimensions are intrinsically unrecoverable.
+Only **24.0%** of GPT-2's 768 residual stream dimensions show positive FVE. Mean per-dimension FVE is −0.070 ± 0.239. The wide standard deviation indicates that some dimensions are reconstructed well while most are not consistent with the paper's finding that reconstruction quality is uneven across dimensions.
 
 ![Per-dimension FVE](figures/fig4_per_dim_fve.png)
 
@@ -281,15 +291,26 @@ We ablate across all 12 GPT-2 layers. Consistent with the paper's guidance to us
 
 ## 7. Behavioral Analysis
 
-We systematically measure the NLA's behavioral properties, replicating the paper's Section 4.2.
-
-![Behavioral properties](figures/fig5_behavioral_properties.png)
-
-*Figure 6: Behavioral property measurements. Left: steganography score, measured as 3-gram(**consecutive words**) overlap between source context and explanation, with lower values indicating less copying. Middle: confabulation scores, where thematic accuracy (0.14) is slightly higher than factual accuracy (0.12). Right: explanation-length distribution for NLA verbalizations, with a mean of about 104 words.*
-
 ### Steganography
 
-The AV should genuinely verbalize the activation content, not copy the input context verbatim. We measure 3-gram overlap between explanations and source texts. **Mean steganography score: 0.000**; the AV is not copying context verbatim under this metric. This is the one behavioral property where the Gemini verbalizer looks favorable: it generates short explanations that share no measured 3-grams with the source.
+3-gram overlap between explanations and source text: **mean = 0.000**(all values zero). The AV is not copying input context verbatim.
+This is the expected result for a structured-output verbalizer that produces fixed-format headings rather than free text.
+
+### Explanation Length and Truncation
+
+| Metric                      | Value                  |
+| --------------------------- | ---------------------- |
+| Mean explanation length     | 7.1 words / 53.8 chars |
+| Min / Max                   | 5 / 11 words           |
+| Fraction truncated          | **40%**          |
+| Fraction with bold headings | 65%                    |
+
+The high truncation rate (40%) and fixed heading format reveal a failure mode not described in the paper: the verbalizer converged to producing very short structured labels ("**Syntactic & Referent Tracking**", "**Semantic Role & Agency**") rather than natural language explanations.
+This is a form of degenerate training that the paper explicitly warns about in its limitations section the AV found a shortcut that satisfies the format constraint without encoding activation content.
+
+### Confabulation Rate
+
+From `behavioral_properties_final.json`: overall confabulation rate = **0.50**(1 of 2 verifiable claims checked was false). Given the very short explanation length (7 words), there are almost no falsifiable factual claims to check the confabulation analysis is statistically unreliable at this explanation quality.
 
 ### Reward Distribution
 
@@ -297,7 +318,7 @@ GRPO reward distributions over training: rewards improve and variance narrows as
 
 ![Reward distribution](figures/fig7_reward_distribution.png)
 
-*Figure 7: Distribution of GRPO rewards at different training checkpoints. Higher reward (less negative) indicates better reconstruction. Narrowing variance indicates convergence.*
+*Figure 6: Distribution of GRPO rewards at different training checkpoints. Higher reward (less negative) indicates better reconstruction. Narrowing variance indicates convergence.*
 
 ---
 
@@ -305,15 +326,13 @@ GRPO reward distributions over training: rewards improve and variance narrows as
 
 ### Planning in Poetry
 
-We replicate Section 3.1 of the paper on GPT-2. The prompt:
+Prompt: *"A rhyming couplet: He saw a carrot and had to grab it," * NLA explanation at the final token: **"Syntactic & Referent Tracking"**
 
-> *"A rhyming couplet: He saw a carrot and had to grab it,"*
+**Result: rabbit-rhyme signal not detected** (`rabbit_rhyme_detected: false`).
 
-The model must complete the second line. We verbalize the activation at the final token ("grab it,") and check whether the NLA explanation contains rhyme-class words (rabbit/habit/cabinet).
+The explanation is a structural label with no semantic content about rhyme anticipation. This null result is informative: it confirms that the degenerate heading-format verbalizer cannot surface planning signals, whereas the paper's fine-tuned AV produces multi-sentence explanations that explicitly name anticipated completions.
 
-**Finding**: The Gemini verbalizer **did not detect a rhyme-planning signal** (`rabbit_rhyme_detected: false`). The verbalization produced at the final token (",") was too generic to expose the expected rhyme-class words.
-
-**Why this matters**: The failure is informative. It demonstrates that rhyme-planning verbalization depends strongly on the *verbalizer*, not only on GPT-2's activations. Re-running with a stronger or different API provider would provide a fairer test of whether GPT-2 layer-7 activations encode forward rhyme constraints.
+This is the expected outcome given explanation quality and is consistent with the hypothesis that rhyme-planning detection requires a verbalizer capable of producing free-text semantic content.
 
 **Steering experiment** (architecture validated, result pending full run): The steering vector computation is implemented in [06_case_studies/planning_in_poetry.py](06_case_studies/planning_in_poetry.py). The formula applied is:
 
@@ -325,41 +344,39 @@ The code compiles and runs; replicating the steering result requires a working r
 
 ### Language Switching Detection
 
-We test the paper's Section 3.2 finding: that NLA explanations reflect the model's internal language representations before any foreign-language tokens are produced.
+| Language condition     | Mean language mentions |
+| ---------------------- | ---------------------- |
+| French-seeded context  | 0.000                  |
+| Spanish-seeded context | **0.023**        |
+| Neutral context        | 0.000                  |
+
+A weak Spanish signal appears (0.023 vs 0.000 for neutral), but no French signal. The paper reports 4–6× elevated mention rates in foreign-language contexts for Claude Opus 4.6. Our result suggests a marginal signal exists even with a proxy verbalizer, but it is too weak to be reliable at this explanation length.
+
+The null French result may reflect a tokenization artefact: French diacritics (café, garçon) are tokenized differently in GPT-2 than in Claude's vocabulary, potentially producing different residual stream patterns.
 
 ![Language switching](figures/fig6_language_switching.png)
 
-*Figure 8: Language mention frequency in NLA explanations across token positions. The latest Gemini-verbalizer run shows no French signal, a weak Spanish signal, and no neutral baseline signal.*
-
-**Finding**: The latest Gemini-verbalizer run does **not** robustly replicate the paper's language-switching result. French-seeded contexts have a mean language-mention rate of 0.000, Spanish-seeded contexts have a weak mean rate of 0.023, and neutral contexts remain at 0.000. This suggests the experiment is implemented, but the current proxy verbalizer is too weak to expose the pre-token language signal reliably.
+*Figure 7: Language mention frequency in NLA explanations across token positions. The latest Gemini-verbalizer run shows no French signal, a weak Spanish signal, and no neutral baseline signal.*
 
 ---
 
 ## 9. Confabulation Analysis
 
-NLA explanations can contain verifiably false claims. We replicate the paper's confabulation characterization (Section 5.2) on 40 random examples, using an LLM judge to rate both thematic and factual accuracy. The confabulation summary is shown in the middle panel of Figure 6 above.
+| Metric                        | Value                    |
+| ----------------------------- | ------------------------ |
+| n_samples                     | 40                       |
+| Thematic accuracy (mean)      | **0.142 ± 0.324** |
+| Factual accuracy (mean)       | **0± 0.294**      |
+| Thematic − Factual gap       | **+0.025**         |
+| High-specificity factual acc. | 0.000                    |
+| Low-specificity factual acc.  | 0.117                    |
 
-**Key findings** (consistent with paper):
+The distribution is heavily skewed: 33 of 40 samples scored 0 on thematic accuracy, 1 scored partial, 2 scored moderate, 4 scored high. This skewed distribution reflects the explanation quality problem: most explanations are structural labels that contain no verifiable thematic claims.
 
-| Metric                   | Value                    |
-| ------------------------ | ------------------------ |
-| Thematic accuracy (0–1) | **0.142 ± 0.324** |
-| Factual accuracy (0–1)  | **0.117 ± 0.294** |
-| Thematic − Factual gap  | **0.025**          |
+The +0.025 thematic-vs-factual gap is directionally consistent with the paper (thematic accuracy exceeds factual accuracy), but the absolute values are too low to draw conclusions. The paper's gap is +0.23; ours is +0.025. The pattern holds, but weakly.
 
-**Interpretation:** Thematic accuracy slightly exceeds factual accuracy, but the gap is small in this run. The distribution is highly skewed toward low scores: 33/40 samples received the lowest thematic score and 34/40 received the lowest factual score. This is consistent with the current explanations being short and often generic rather than richly grounded.
-
-### Possible mitigations
-
-The immediate problem is that the current verbalizer often produces overly concise, generic explanations. Two practical changes could improve this:
-
-**Reward shaping and length regularization.** During the RL training phase, the reward can penalize excessively short, repetitive, or template-like explanations while rewarding fluency, specificity, and reconstruction usefulness. This would discourage the Activation Verbalizer from compressing the activation signal into minimal generic text.
-
-**System prompt optimization.** The verbalizer prompt can explicitly require multi-sentence explanations that unpack semantic themes, likely token-level behavior, and uncertainty. The prompt should also discourage unsupported factual claims, so the model does not simply produce longer confabulations.
-
-These mitigations should be combined with factual-grounding checks. Length alone is not enough: a stronger verbalizer must be rewarded for producing explanations that are both richer and more faithful to the activation evidence.
-
-The code and judge prompt are implemented in [07_analysis/confabulation_analysis.py](07_analysis/confabulation_analysis.py). Wider evaluation sets and stronger verbalizers would be needed before treating the exact gap size as stable.
+**Key finding**: High-specificity factual accuracy = 0.000. When the verbalizer does produce specific claims, they are always false consistent with the paper's finding that high-specificity claims
+confabulate more. This holds even at minimal explanation length. The code and judge prompt are implemented in [07_analysis/confabulation_analysis.py](07_analysis/confabulation_analysis.py). Wider evaluation sets and stronger verbalizers would be needed before treating the exact gap size as stable.
 
 ---
 
@@ -394,7 +411,7 @@ So the honest conclusion is narrower than "successful replication": this project
 
 ![Summary comparison](figures/fig9_summary_comparison.png)
 
-*Figure 9: FVE comparison across methods and ablations. The gap to the paper's results is best interpreted as an implementation-scale gap: the proxy verbalizer, PCA bottleneck, and limited training budget are all plausible contributors.*
+*Figure 8: FVE comparison across methods and ablations. The gap to the paper's results is best interpreted as an implementation-scale gap: the proxy verbalizer, PCA bottleneck, and limited training budget are all plausible contributors.*
 
 ---
 

@@ -1,0 +1,27 @@
+{
+  "n_samples": 40,
+  "thematic_accuracy": {
+    "mean": 0.14166666666666666,
+    "std": 0.32392986209294683,
+    "distribution": [
+      33,
+      1,
+      2,
+      4
+    ]
+  },
+  "factual_accuracy": {
+    "mean": 0.11666666666666665,
+    "std": 0.2939198681424733,
+    "distribution": [
+      34,
+      1,
+      2,
+      3
+    ]
+  },
+  "thematic_vs_factual_gap": 0.025,
+  "high_specificity_factual_acc": 0,
+  "low_specificity_factual_acc": 0.11666666666666665,
+  "key_finding": "Thematic accuracy consistently exceeds factual accuracy. High-specificity explanations confabulate more specific facts while preserving thematic correctness \u2014 consistent with paper findings."
+}

@@ -1,0 +1,30 @@
+{
+  "steganography": {
+    "metric": "steganography",
+    "n_gram": 3,
+    "mean": 0.0,
+    "std": 0.0,
+    "max": 0.0,
+    "p90": 0.0
+  },
+  "explanation_length": {
+    "mean_words": 7.14,
+    "std_words": 1.2885650934275692,
+    "min_words": 5,
+    "max_words": 11,
+    "mean_chars": 53.77
+  },
+  "structural_quality": {
+    "fraction_with_bold_headings": 0.65,
+    "fraction_with_paragraphs": 0.01,
+    "fraction_truncated": 0.4
+  },
+  "confabulation": {
+    "overall_confabulation_rate": 0.5,
+    "mean_per_sample_rate": 0.03333333333333333,
+    "std_per_sample_rate": 0.1795054935711501,
+    "total_claims_checked": 2,
+    "total_confabulated": 1,
+    "n_samples": 30
+  }
+}

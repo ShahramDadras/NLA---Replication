@@ -1,0 +1,29 @@
+{
+  "french": {
+    "language": "french",
+    "prompts": [
+      "The French ambassador said 'Bonjour' to the crowd. He continued speaking and",
+      "In Paris, the caf\u00e9 au lait was served by a gar\u00e7on who",
+      "She learned to say 'merci beaucoup' and 'au revoir' before her trip, and when she arrived"
+    ],
+    "mean_mentions": 0.0
+  },
+  "spanish": {
+    "language": "spanish",
+    "prompts": [
+      "El presidente announced the new policy to the crowd. The people responded with",
+      "In Madrid, she ordered 'caf\u00e9 con leche' and the waiter said 'gracias'. She",
+      "The Spanish word 'ma\u00f1ana' means tomorrow, but culturally it implies"
+    ],
+    "mean_mentions": 0.02301209007648392
+  },
+  "neutral": {
+    "language": "neutral",
+    "prompts": [
+      "The scientist published a paper about quantum computing and the results showed that",
+      "In the library, the student found a book about ancient history and",
+      "The weather forecast predicted rain for the entire week, so the farmers"
+    ],
+    "mean_mentions": 0.0
+  }
+}

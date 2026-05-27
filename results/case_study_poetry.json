@@ -1,0 +1,6 @@
+{
+  "prompt": "A rhyming couplet: He saw a carrot and had to grab it,",
+  "final_token": ",",
+  "explanation": "**Syntactic & Referent Tracking**",
+  "rabbit_rhyme_detected": false
+}
