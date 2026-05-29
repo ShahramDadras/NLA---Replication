@@ -144,8 +144,6 @@ def compute_cross_token_claim_persistence(
     for i in range(len(bigram_sets) - 2):
         triple_intersection = bigram_sets[i] & bigram_sets[i+1] & bigram_sets[i+2]
         persistent |= triple_intersection
-
-    # Per-position overlap
     overlap_scores = []
     for i in range(len(bigram_sets) - 1):
         a, b = bigram_sets[i], bigram_sets[i+1]
